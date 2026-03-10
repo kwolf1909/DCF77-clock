@@ -1,8 +1,8 @@
-This program receives the DCF77 time signal and syncs it with the external
-RTC-clock. It is displayed on a 8-digit 7-segment display with HT16K33
+This program receives the european DCF77 time signal and syncs it with the
+external RTC-clock. It is displayed on a 8-digit 7-segment display with HT16K33
 controller.
 The MCU used is an ATtiny 814 or 1614. Without serial debugging and OneWire,
-an Attiny 414 oder 412 (with minor modifications) can be used as well.
+an ATtiny 414 oder 412 (with minor modifications) can be used as well.
 Optionally the OneWire part can be included for an additional temperature
 display.
 The circuit can be powered by a LiPo-cell. If the voltage drops below 2.9 V,
