@@ -13,8 +13,8 @@ Time with seconds, time with date, time with battery voltage
 MCU-clock: 8 MHz,
 Timers used: TCA0 (DCF signal processing), RTC (2 Hz generation via interrupt),
              TCD0 (millis)
-External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
-7-seg display: DFRobot 8-digit display with I2C interface
+External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
+7-seg display: DFRobot 8-digit display with I2C interface,
 External DCF77-receiver: ELV DCF-2 (MAS6180 AM-receiver)
 
 Compiles with MegaTinyCore on Arduino IDE.
