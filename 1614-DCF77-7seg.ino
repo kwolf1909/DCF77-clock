@@ -2,10 +2,10 @@
 /*
   DCF77-7seg.ino
 
-  This program receives zhe DCF77 time signal and syncs it with the external
+  This program receives the DCF77 time signal and syncs it with the external
   RTC-clock. It is displayed on a 8-digit 7-segment display with HT16K33
   controller.
-  The MCU used is an ATtiny 814 or 1614. Withour serial debugging and OneWire,
+  The MCU used is an ATtiny 814 or 1614. Without serial debugging and OneWire,
   an Attiny 414 oder 412 (with minor modifications) can be used as well.
   Optionally the OneWire part can be included for an additional temperature
   display.
