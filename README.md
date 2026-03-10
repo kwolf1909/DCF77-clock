@@ -10,7 +10,7 @@ the voltage is displayed as a low voltage indicator.
 A push button switches between different display modes:
 Time with seconds, time with date, time with battery voltage
 
-MCU-clock: 8 MHz
+MCU-clock: 8 MHz,
 Timers used: TCA0 (DCF signal processing), RTC (2 Hz generation via interrupt),
              TCD0 (millis)
 External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
