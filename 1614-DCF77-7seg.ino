@@ -11,23 +11,33 @@
   display.
 
   MCU-clock: 8 MHz
-  Timers used: TCA0 (DCF signal processing), RTC (2 Hz generation via interrupt),
-               TCD0 (millis)
+  Timers used: TCA0 (DCF signal measurement), TCB0 for OneWire implementation,
+               TCD0 (millis), RTC (2 Hz generation via interrupt)
   External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 
   Author: K. Wolf
-  Date: Feb 27th 2026
+  Date: Apr 09th 2026
 */
 /*******************************************************************************/
 
+#define TINY_412
+//#define TINY_1614
+
+#ifdef TINY_412
+#include <TinyI2CMaster.h>
+#include "DateTime.h"
+#endif
+#ifdef TINY_1614
 #include <Wire.h>
 #include <RTClib.h>
-#include "7segfonttable.h"
 #include "OneWire.h"
+#endif
+#include "Display.h"
 
-//#define SERIALDEBUG         1
-//#define ONEWIRE             1
-#define LED                   1
+//#define SERIALDEBUG
+//#define ONEWIRE
+#define LED
+
 #define SUCCESS               0
 #define ERROR_INVALID_VALUE  -1
 #define TIMER_FREQ            7812  // 8 Mhz / 1024 = 7812
@@ -38,9 +48,11 @@
 #define BIT_0_DURATION_HIGH   938   // timer ticks (120 ms)
 #define BIT_1_DURATION_LOW    1406  // timer ticks (180 ms)
 #define BIT_1_DURATION_HIGH   1719  // timer ticks (220 ms)
-#define TIMEOUT_DURATION_LOW  13280 // timer ticks (1700 ms)
-#define TIMEOUT_DURATION_HIGH 14843 // timer ticks (1900 ms)
-#define DCF77_STRING_SIZE     59
+//#define TIMEOUT_DURATION_LOW  13280 // timer ticks (1700 ms)
+//#define TIMEOUT_DURATION_HIGH 14843 // timer ticks (1900 ms)
+#define TIMEOUT_DURATION_LOW  12000 // timer ticks (1700 ms)
+#define TIMEOUT_DURATION_HIGH 16000 // timer ticks (1900 ms)
+#define DCF77_SIZE            59
 
 // ----------------- 7-segment digit definitions --------------------------------------
 
@@ -60,14 +72,27 @@
 #define HT16K33_BLINK_1HZ       2
 #define HT16K33_BLINK_HALFHZ    3
 
-#define NUM_DIGITS              8
 #define DISPLAY_BRIGHTNESS      8
+#define ONEWIRE_PIN             4
+#define ONEWIRE_RESOLUTION      11
 
 #ifdef MILLIS_USE_TIMERA0
 #error "This sketch takes over TCA0 - please use a different timer for millis"
 #endif
 
-const uint8_t displayAddress = 0x70;
+#ifdef TINY_412
+const uint8_t pinLed = PIN6_bm;
+const uint8_t pinDcf = PIN3_bm;
+const uint8_t pinButton = PIN7_bm;
+#endif
+#ifdef TINY_1614
+#define RTC_AVAIL
+const uint8_t pinLed = PIN5_bm;
+const uint8_t pinDcf = PIN3_bm;
+const uint8_t pinButton = PIN6_bm;
+const uint8_t pinPullup = PIN7_bm;
+#endif
+
 const uint32_t resyncDelay = 10 * 60 * 1000L;
 const uint32_t receiveTimeout = 5 * 60 * 1000L;
 const uint32_t buttonDelay = 500;
@@ -87,11 +112,11 @@ struct TimeStampDCF77
   int8_t transmitter_fault;  // only relevant with very good signal
 };
 
-uint8_t bitArray[DCF77_STRING_SIZE];  // memory location for received DCF77 bit string
+uint8_t bitArray[DCF77_SIZE];  // memory location for received DCF77 bit string
 TimeStampDCF77 dCF77time;             // data type for decoded DCF77 string
 
 bool      prevtock, lastDCFDecode, syncReq, syncTimeout, syncStatus;
-uint8_t   timeState, showState, DCFstate, syncPos, prevPulse, vcc[2];
+uint8_t   timeState, showState, DCFstate, syncPos, prevPos, prevPulse, vcc[2];
 int16_t   tempRaw;
 uint32_t  currentTime, resyncTime, lastButtonTime, lastReceiveTime;
 
@@ -100,13 +125,16 @@ volatile uint8_t receiveState, pulseType, DCFpos;
 volatile uint16_t lengthPulse, lengthPause;
 
 DateTime dt(2026, 1, 1, 0, 0, 0);
+#ifdef RTC_AVAIL
 RTC_DS3231 rtc;
+#endif
 
 enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED, TIME_RESYNC };
 enum { DCF_RECEIVING = 1, DCF_RECEIVECOMPLETE, DCF_SYNCTIME };
 enum { RECEIVE_MINUTEMARKER = 1, RECEIVE_STARTBIT, RECEIVE_RECEIVING };
 enum { PULSE_START = 1, PULSE_END };
 enum { SHOW_TIMEDATE = 1, SHOW_TIMEFULL, SHOW_TIMETEMP, SHOW_LOWBATT };
+enum { SHOWSYNC_MINUTEMARKER = 1, SHOWSYNC_RECEIVING };
 
 //----------------------------------------------------------------------------------
 
@@ -117,25 +145,32 @@ void setup() {
   Serial.println("\r\nInit...");
 #endif
 
-  // DCF signal input with pullup on PA3
-  PORTA.DIRCLR = PIN3_bm;
+  // DCF signal input with pullup
+  PORTA.DIRCLR = pinDcf;
   PORTA.PIN3CTRL = PORT_PULLUPEN_bm;
   PORTA.PIN3CTRL |= PORT_ISC_BOTHEDGES_gc;
 
-  // LED on PA5
-  PORTA.DIRSET = PIN5_bm;
-  PORTA.OUTCLR = PIN5_bm;
+  // LED
+  PORTA.DIRSET = pinLed;
+  PORTA.OUTCLR = pinLed;
 
-  // Button on PA6
-  PORTA.DIRCLR = PIN6_bm;
-  PORTA.PIN6CTRL = PORT_PULLUPEN_bm;
-  PORTA.PIN6CTRL |= PORT_ISC_FALLING_gc;
+  // Button
+  PORTA.DIRCLR = pinButton;
+  PORTA.PIN7CTRL = PORT_PULLUPEN_bm;
+  PORTA.PIN7CTRL |= PORT_ISC_FALLING_gc;
 
-  // Pullup for XOSC1
-  PORTA.DIRSET = PIN7_bm;
-  PORTA.OUTSET = PIN7_bm;
+#ifdef TINY_1614
+  // Pullup for 32K CLK-signal
+  PORTA.DIRSET = pinPullup;
+  PORTA.OUTSET = pinPullup;
+#endif
 
+#ifdef TINY_412
+  TinyI2C.init();
+#endif
+#ifdef TINY_1614
   Wire.begin();
+#endif
 
   delay(50);
   initDisplay(DISPLAY_BRIGHTNESS);
@@ -143,15 +178,15 @@ void setup() {
   delay(1000);
 
 #ifdef ONEWIRE
-  // OneWire on pin PA4
-  oneWireSetup(4);
-  setResolution(11);
+  oneWireSetup(ONEWIRE_PIN);
+  setResolution(ONEWIRE_RESOLUTION);
   startConversion();
-  delay(400);
+  delay(500);
   tempRaw = readTemperature();
 #endif
   
   timeState = TIME_NOTIME;
+#ifdef RTC_AVAIL
   // initialize external RTC
   if (rtc.begin()) {
     if (rtc.lostPower()) {
@@ -163,7 +198,8 @@ void setup() {
     }
     rtc.enable32K();
   }
-
+#endif
+  
   RTCinit();
   ADCinit();
   delay(50);
@@ -176,6 +212,7 @@ void setup() {
   prevPulse = PULSE_END;
   DCFpos = 0;
   syncPos = 0;
+  prevPos = 0;
   minuteMarker = false;
   startBit = false;
   receiveBit = false;
@@ -212,13 +249,25 @@ void loop() {
 #endif
 
   // show sync animation during first sync
-  if (timeState == TIME_SYNC) {
-    if (prevPulse != pulseType) {
-      prevPulse = pulseType;
-      if (pulseType == PULSE_START) showSync(syncPos, true);
-      if (pulseType == PULSE_END) showSync(syncPos++, false);
-      if (syncPos > 3) syncPos = 0;
+  if (syncReq && timeState == TIME_SYNC) {
+    // show receive pulse animation
+    if (receiveState == RECEIVE_MINUTEMARKER && DCFpos < DCF77_SIZE) {
+      if (prevPulse != pulseType) {
+        prevPulse = pulseType;
+        if (pulseType == PULSE_START) showSync(SHOWSYNC_MINUTEMARKER, syncPos, true);
+        if (pulseType == PULSE_END) showSync(SHOWSYNC_MINUTEMARKER, syncPos++, false);
+        if (syncPos > 3) syncPos = 0;
+      }
     }
+    // show counter
+    if (receiveState == RECEIVE_RECEIVING && DCFpos < DCF77_SIZE) {
+      if (DCFpos > prevPos) {
+        prevPos = DCFpos;
+        showSync(SHOWSYNC_RECEIVING, DCF77_SIZE - DCFpos, false);
+      }
+    }
+    // show final counter value
+    if (receiveState == RECEIVE_MINUTEMARKER && DCFpos == DCF77_SIZE) showSync(SHOWSYNC_RECEIVING, 0, false);
   }
 
   // read button and debounce
@@ -258,7 +307,7 @@ void loop() {
       if (decodeDCF77(bitArray, &dCF77time) == SUCCESS) {
 #ifdef SERIALDEBUG
         Serial.println("New DCF77 decode successful");
-#endif
+#endif  
         syncTimeout = false;
         lastDCFDecode = true;
         DCFstate = DCF_SYNCTIME;
@@ -273,8 +322,9 @@ void loop() {
       if (syncReq) {
         // update local time
         dt = DateTime(dCF77time.year, dCF77time.month, dCF77time.day, dCF77time.hour, dCF77time.minute, 0);
+#ifdef RTC_AVAIL
         rtc.adjust(dt);
-
+#endif
         // clear RTC clock counter
         while (RTC.STATUS > 0);
         RTC.CNT = 0;
@@ -290,8 +340,8 @@ void loop() {
   if (ticktock != prevtock) {
     prevtock = ticktock;
 
-    //  measureVoltage();
-    //  if (vcc[0] < 3) showState = SHOW_LOWBATT;
+    measureVoltage();
+    if (vcc[0] < 3) showState = SHOW_LOWBATT;
 
     switch (timeState) {
       case TIME_NOTIME:
@@ -301,7 +351,9 @@ void loop() {
 #endif
         syncReq = true;
         syncStatus = false;
+        syncTimeout = true;
         timeState = TIME_SYNC;
+        showSync(SHOWSYNC_MINUTEMARKER, 0, false);
         break;
 
       case TIME_RTC:
@@ -320,6 +372,8 @@ void loop() {
 #endif
           resyncTime = currentTime;
           timeState = TIME_SYNCED;
+          syncStatus = true;
+          showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), ticktock, syncStatus);
         }
         break;
 
@@ -331,24 +385,28 @@ void loop() {
 #endif
           resyncTime = currentTime;
           timeState = TIME_SYNCED;
+          syncStatus = true;
         }
         showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), ticktock, syncStatus);
         break;
       
       case TIME_SYNCED:
         if (currentTime - resyncTime > resyncDelay && syncReq == false) {
+#ifdef SERIALDEBUG
+          Serial.println("Resync: Resync started...");
+#endif
           // request DCF update
           resyncTime = currentTime;
           syncReq = true;
         }
         // calculate new sync status
         if (syncReq && syncTimeout) syncStatus = false;
-        else syncStatus = true;
 
         showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), ticktock, syncStatus);
         break;
     }
   }
+  delay(10);
 }
 
 //----------------------------------------------------------------------------------
@@ -437,24 +495,24 @@ int decodeDCF77(uint8_t *bitArray, TimeStampDCF77 * time)
 ISR(PORTA_PORT_vect) {
 
   // detect DCF77 signal
-  if (PORTA.INTFLAGS & PIN3_bm) {
-    PORTA.INTFLAGS = PIN3_bm;
+  if (PORTA.INTFLAGS & pinDcf) {
+    PORTA.INTFLAGS = pinDcf;
 
     // filter noise
     if (TCA0.SINGLE.CNT < BIT_0_MIN_DURATION) return;
 
-    if (PORTA.IN & PIN3_bm) {
+    if (PORTA.IN & pinDcf) {
       // edge low to high
-#if LED
-      PORTA.OUTCLR = PIN5_bm;
+#ifdef LED
+      PORTA.OUTCLR = pinLed;
 #endif
       lengthPulse = TCA0.SINGLE.CNT;
       TCA0.SINGLE.CNT = 0;
       pulseType = PULSE_END;
     } else {
       // edge high to low
-#if LED
-      PORTA.OUTSET = PIN5_bm;
+#ifdef LED
+      PORTA.OUTSET = pinLed;
 #endif
       lengthPause = TCA0.SINGLE.CNT;
       TCA0.SINGLE.CNT = 0;
@@ -468,7 +526,7 @@ ISR(PORTA_PORT_vect) {
             // minute marker detected
             minuteMarker = true;
             // this triggers data processing
-            if (DCFpos == DCF77_STRING_SIZE) receiveComplete = true;
+            if (DCFpos == DCF77_SIZE) receiveComplete = true;
             DCFpos = 0;
             receiveState = RECEIVE_STARTBIT;
           }
@@ -506,15 +564,15 @@ ISR(PORTA_PORT_vect) {
             DCFpos = 0;
             receiveState = RECEIVE_MINUTEMARKER;
           }
-          if (++DCFpos == DCF77_STRING_SIZE) receiveState = RECEIVE_MINUTEMARKER;
+          if (++DCFpos == DCF77_SIZE) receiveState = RECEIVE_MINUTEMARKER;
         }
         break;
     }
   }
 
   // detect button press
-  if (PORTA.INTFLAGS & PIN6_bm) {
-    PORTA.INTFLAGS = PIN6_bm;
+  if (PORTA.INTFLAGS & pinButton) {
+    PORTA.INTFLAGS = pinButton;
     button = true;
   }
 }
@@ -523,111 +581,45 @@ ISR(TCA0_CMP0_vect) {
   TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm;
   TCA0.SINGLE.CNT = 0;
 
-  //PORTA.OUTTGL = PIN5_bm;
+  //PORTA.OUTTGL = pinLed;
 }
 
 // the RTC interrupt is called twice a seconds
 ISR(RTC_PIT_vect) {
   RTC.PITINTFLAGS = RTC_PI_bm;
+  
   ticktock = !ticktock;
   if (ticktock == true) dt = dt + 1;
-
-  //PORTA.OUTTGL = PIN5_bm;
+  
+  //PORTA.OUTTGL = pinLed;
 }
 
 //----------------------------------------------------------------------------------
 
-void initDisplay (uint8_t bright) {
+void showSync(uint8_t showMode, uint8_t pos, bool sync) {
+  uint8_t buffer[8];
 
-  Wire.beginTransmission(displayAddress);
-  Wire.write(0x21);
-  Wire.endTransmission();
-
-  Wire.beginTransmission(displayAddress);
-  Wire.write(0x81);
-  Wire.endTransmission();
-
-  Wire.beginTransmission(displayAddress);
-  Wire.write(0xE0 | (bright & 0x0F));
-  Wire.endTransmission();
-}
-/*
-  void writeWord (uint8_t b) {
-
-  Wire.write(b);
-  Wire.write(0);
-  }
-
-  void blinkRate(uint8_t b) {
-
-  if (b > 3) b = 0; // turn off if not sure
-  Wire.beginTransmission(displayAddress);
-  Wire.write(HT16K33_BLINK_CMD | HT16K33_BLINK_DISPLAYON | (b << 1));
-  Wire.endTransmission();
-  }
-*/
-// writes the raw display codes
-void showDisplay (char *d) {
-
-  Wire.beginTransmission(displayAddress);
-  Wire.write(0);
-
-  for (uint8_t i = 0; i < NUM_DIGITS; i++) {
-    Wire.write(d[i]);
-    Wire.write(0);
-  }
-  Wire.endTransmission();
-}
-
-// writes a string to display
-void printDisplay (const char *s) {
-  uint8_t i, pos, code;
-
-  Wire.beginTransmission(displayAddress);
-  Wire.write(0);
-
-  i = 0;
-  pos = 0;
-  while (s[i] && pos < NUM_DIGITS) {
-
-    // write ascii number with colon support
-    code = getFont(s[i]);
-    if (s[i + 1] == '.') {
-      code |= COLON;
-      i++;
-    }
-    Wire.write(code);
-    Wire.write(0);
-    i++;
-    pos++;
-  }
-  Wire.endTransmission();
-}
-
-uint8_t getFont(uint8_t c) {
-  if (c < 32) return 0;
-  return sevensegfonttable[c - 32];
-}
-
-void showSync(uint8_t pos, bool sync) {
-  char buffer[8];
-
-  if (pos > 3) return;
   buffer[0] = getFont('S');
   buffer[1] = getFont('Y');
   buffer[2] = getFont('N');
   buffer[3] = getFont('C');
-
   buffer[4] = buffer[5] = buffer[6] = buffer[7] = 0;
-  if (sync)
-    buffer[4 + pos] = COLON;
 
+  switch (showMode) {
+    case SHOWSYNC_MINUTEMARKER:
+      if (pos > 3) return;
+      if (sync) buffer[4 + pos] = COLON;
+      break;
+
+    case SHOWSYNC_RECEIVING:
+      if (pos >= 10) buffer[6] = getFont('0' + pos / 10);
+      buffer[7] = getFont('0' + pos % 10);
+  }
   showDisplay(buffer);
 }
 
 void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uint8_t d, bool colon, bool sync) {
-  char buffer[8];
-  uint8_t temp, tenth;
+  uint8_t buffer[8], temp, tenth;
 
   // show time
   buffer[0] = getFont('0' + hr / 10);
@@ -698,12 +690,13 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 
 void RTCinit(void) {
 
+// enable external 32K clock when external RTC available
+#ifdef RTC_AVAIL
   uint8_t temp = CLKCTRL.XOSC32KCTRLA & ~CLKCTRL_ENABLE_bm;
   CPU_CCP = CCP_IOREG_gc;
   CLKCTRL.XOSC32KCTRLA = temp;
   while (CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm);
 
-  //temp = CLKCTRL.XOSC32KCTRLA & ~CLKCTRL_SEL_bm;
   temp = CLKCTRL.XOSC32KCTRLA | CLKCTRL_SEL_bm;
   CPU_CCP = CCP_IOREG_gc;
   CLKCTRL.XOSC32KCTRLA = temp;
@@ -713,9 +706,16 @@ void RTCinit(void) {
   CLKCTRL.XOSC32KCTRLA = temp;
 
   while (RTC.STATUS > 0);
-  //RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
   RTC.CLKSEL = RTC_CLKSEL_TOSC32K_gc;
+#else
+  // use internal 32K clock source
+  while (RTC.STATUS > 0);
+  RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
+#endif
+  
+  while (RTC.PITSTATUS > 0);
   RTC.PITCTRLA = RTC_PERIOD_CYC16384_gc | RTC_PITEN_bm;
+  while (RTC.PITSTATUS > 0);
   RTC.PITINTCTRL = RTC_PI_bm;
 }
 
