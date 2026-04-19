@@ -297,7 +297,7 @@ void loop() {
     if (receiveState == RECEIVE_MINUTEMARKER && DCFpos == DCF77_SIZE) showSync(SHOWSYNC_RECEIVING, 0, false);
   }
 
-#ifdef TINY1614
+#ifdef TINY_1614
   // read button and debounce
   if (button) {
     button = false;
