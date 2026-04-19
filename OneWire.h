@@ -119,9 +119,7 @@ uint8_t oneWireCRC(uint8_t bytes) {
 
 // start conversion
 bool startConversion() {
-//cli();
   if (oneWireReset() != 0) {
-//  sei();
     return false;
   } else {
     oneWireWrite(SkipROM);
@@ -132,15 +130,12 @@ bool startConversion() {
 
 // Read temperature of a single DS18B20 or MAX31820 on the bus
 int16_t readTemperature() {
-//cli();
   if (oneWireReset() != 0) {
-//  sei();
     return -99;
   } else {
     oneWireWrite(SkipROM);
     oneWireWrite(ReadScratchpad);
     oneWireReadBytes(9);
-//  sei();
     if (oneWireCRC(9) == 0) return dataWords[0];
   }
   return -99;
