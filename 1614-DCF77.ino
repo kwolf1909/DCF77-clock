@@ -17,7 +17,7 @@
   External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 
   Author: K. Wolf
-  Date: Apr 19th 2026
+  Date: Apr 22th 2026
 */
 /*******************************************************************************/
 
@@ -60,24 +60,6 @@
 #define TIMEOUT_DURATION_LOW  12000 // timer ticks (1700 ms)
 #define TIMEOUT_DURATION_HIGH 16000 // timer ticks (1900 ms)
 
-// ----------------- 7-segment digit definitions -----------------------------------
-
-#define LINE_RIGHTUP    0x02
-#define LINE_RIGHTDOWN  0x04
-#define LINE_TOP        0x01
-#define LINE_BOTTOM     0x08
-#define LINE_LEFTUP     0x20
-#define LINE_LEFTDOWN   0x10
-#define LINE_MIDDLE     0x40
-#define COLON           0x80
-
-#define HT16K33_BLINK_CMD       0x80
-#define HT16K33_BLINK_DISPLAYON 0x01
-#define HT16K33_BLINK_OFF       0
-#define HT16K33_BLINK_2HZ       1
-#define HT16K33_BLINK_1HZ       2
-#define HT16K33_BLINK_HALFHZ    3
-
 #define DISPLAY_ADDRESS         0x70
 #define DISPLAY_DIGITS          8
 #define DISPLAY_BRIGHTNESS      4
@@ -89,23 +71,13 @@
 #error "This sketch takes over TCA0 - please use a different timer for millis"
 #endif
 
-// ----------------- hardware definitions ------------------------------------------
-
-#ifdef TINY_412
+const uint8_t pinDcf = PIN3_bm;
 const uint8_t pinLed = PIN6_bm;
-const uint8_t pinDcf = PIN3_bm;
 const uint8_t pinButton = PIN7_bm;
-#endif
-#ifdef TINY_1614
-const uint8_t pinLed = PIN5_bm;
-const uint8_t pinDcf = PIN3_bm;
-const uint8_t pinButton = PIN6_bm;
-const uint8_t pinPullup = PIN7_bm;
-#endif
 
 const uint32_t resyncDelay = 10 * 60 * 1000L;
 const uint32_t receiveTimeout = 5 * 60 * 1000L;
-const uint32_t buttonDelay = 500;
+const uint32_t buttonDelay = 500L;
 
 struct TimeStampDCF77
 {
@@ -122,11 +94,8 @@ struct TimeStampDCF77
   int8_t transmitter_fault;  // only relevant with very good signal
 };
 
-uint8_t bitArray[DCF77_SIZE];  // memory location for received DCF77 bit string
-TimeStampDCF77 dCF77time;             // data type for decoded DCF77 string
-
 bool      prevtock, lastDCFDecode, syncReq, syncTimeout, syncStatus, sens;
-uint8_t   timeState, showState, DCFstate, syncPos, prevPos, prevPulse, vcc[2];
+uint8_t   timeState, showState, DCFstate, syncPos, prevPos, prevPulse, vcc[2], bitArray[DCF77_SIZE];
 int16_t   tempRaw;
 uint32_t  currentTime, resyncTime, lastButtonTime, lastReceiveTime;
 
@@ -134,6 +103,7 @@ volatile bool minuteMarker, startBit, receiveBit, receiveComplete, ticktock, but
 volatile uint8_t receiveState, pulseType, DCFpos;
 volatile uint16_t lengthPulse, lengthPause;
 
+TimeStampDCF77 dCF77time;
 AlphaDisplay alpha;
 
 DateTime dt(2026, 1, 1, 0, 0, 0);
@@ -152,7 +122,7 @@ enum { SHOWSYNC_MINUTEMARKER = 1, SHOWSYNC_RECEIVING };
 
 void setup() {
 #ifdef SERIALDEBUG
-  Serial.swap(1);         // use PA1(Tx) and PA2 (Rx)
+  Serial.swap(1);         // use PA1(TXD) and PA2 (RXD)
   Serial.begin(115200);
   Serial.println("\r\nInit...");
 #endif
@@ -168,14 +138,8 @@ void setup() {
 
   // Button
   PORTA.DIRCLR = pinButton;
-  PORTA.PIN6CTRL = PORT_PULLUPEN_bm;
-  PORTA.PIN6CTRL |= PORT_ISC_FALLING_gc;
-
-#ifdef TINY_1614
-  // Pullup for 32K CLK-signal
-  PORTA.DIRSET = pinPullup;
-  PORTA.OUTSET = pinPullup;
-#endif
+  PORTA.PIN7CTRL = PORT_PULLUPEN_bm;
+  PORTA.PIN7CTRL |= PORT_ISC_FALLING_gc;
 
 #ifdef TINYWIRE
   TinyI2C.init();
