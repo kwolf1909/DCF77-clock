@@ -21,6 +21,6 @@ Custom built alphanumeric display used
 http://www.technoblogy.com/show?2ULE
 
 <img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" />
-<nl>
+ 
 Compiles with MegaTinyCore on Arduino IDE.
 External libraries required: RTClib.h (Adafruit fork)
