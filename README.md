@@ -17,5 +17,10 @@ External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
 8-digit display (I2C): DFRobot 7-segment, or custom built 14-segment.
 External DCF77-receiver: ELV DCF-2 (MAS6180 AM-receiver)
 
+Custom built alphanumeric display used
+http://www.technoblogy.com/show?2ULE
+
+<img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" />
+
 Compiles with MegaTinyCore on Arduino IDE.
 External libraries required: RTClib.h (Adafruit fork)
