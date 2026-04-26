@@ -16,6 +16,16 @@ Timers used: TCA0 (DCF signal processing), TCB0 (timing for OneWire),
 External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
 8-digit display (I2C): DFRobot 7-segment, or custom built 14-segment.
 External DCF77-receiver: ELV DCF-2 (MAS6180 AM-receiver)
+Temperature-sensor: DS18B20 with external pullup
+
+Pins used:
+PA3 - Input, DCF-signal, input-pullup enabled, low-active signal
+PA4 - Input/Output, used by tiny OnwWire-implementation (temp sensor DS18B20),
+      external pullup 4,7K
+PA6 - Output, LED which reflects the DCF-input signal
+PA7 - Input, mode select button, active low with input-pullup enabled
+PB0 - I2C CLK for display
+PB1 - I2C DATA for display
 
 Custom built alphanumeric display used
 http://www.technoblogy.com/show?2ULE
