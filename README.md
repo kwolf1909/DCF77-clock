@@ -18,7 +18,7 @@ External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
 External DCF77-receiver: ELV DCF-2 (MAS6180 AM-receiver)
 Temperature-sensor: DS18B20 with external pullup
 
-Pins used:
+Pins used:<br>
 PA3 - Input, DCF-signal, input-pullup enabled, low-active signal<br>
 PA4 - Input/Output, used by tiny OnwWire-implementation (temp sensor DS18B20),
       external pullup 4,7K<br>
@@ -30,6 +30,6 @@ PB1 - I2C DATA for display<br>
 Custom built alphanumeric display used: http://www.technoblogy.com/show?2ULE
 
 <img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" />
- 
+<br>
 Compiles with MegaTinyCore on Arduino IDE.
 External libraries required: RTClib.h (Adafruit fork)
