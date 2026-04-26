@@ -1,11 +1,11 @@
-/*******************************************************************************/
+//------------------------------------------------------------------------------------------------
 /*
-  DCF77-7seg.ino
+  1614-DCF77.ino
 
   This program receives the european DCF77 time signal and syncs it with the external RTC-clock.
-  It is displayed on a 8-digit 14- or 7-segment display with display-controller HT16K33.
-  The MCU used is an ATtiny 814 or 1614. Without serial debugging and OneWire, an ATtiny 412 can be used.
-  The MCU used is selected by setting the appropriate #define statement.
+  It is displayed on an 8-digit alphanumeric- or 7-segment display with display-controller HT16K33.
+  The MCU used is an ATtiny 814 or 1614. Without serial debugging and OneWire, an ATtiny 412
+  can be used. The MCU used is selected by setting the appropriate #define statement.
   The circuit can be powered by a LiPo-cell. If the voltage drops below 3.0 V,
   the voltage is displayed as a low voltage indicator.
   A push button switches between different display modes:
@@ -17,9 +17,9 @@
   External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 
   Author: K. Wolf
-  Date: Apr 22th 2026
+  Date: Apr 26th 2026
 */
-/*******************************************************************************/
+//------------------------------------------------------------------------------------------------
 
 //#define TINY_412
 #define TINY_1614
@@ -44,7 +44,6 @@
 
 #define SUCCESS               0
 #define ERROR_INVALID_VALUE  -1
-#define NO_SENSOR            -99
 #define DCF77_SIZE            59
 
 #define TIMER_FREQ            7812  // 8 Mhz / 1024 = 7812
@@ -75,8 +74,8 @@ const uint8_t pinDcf = PIN3_bm;
 const uint8_t pinLed = PIN6_bm;
 const uint8_t pinButton = PIN7_bm;
 
+const uint32_t receiveDelay = 20 * 60 * 1000L;
 const uint32_t resyncDelay = 10 * 60 * 1000L;
-const uint32_t receiveTimeout = 5 * 60 * 1000L;
 const uint32_t buttonDelay = 500L;
 
 struct TimeStampDCF77
@@ -94,10 +93,10 @@ struct TimeStampDCF77
   int8_t transmitter_fault;  // only relevant with very good signal
 };
 
-bool      prevtock, lastDCFDecode, syncReq, syncTimeout, syncStatus, sens;
+bool      prevtock, syncReq, syncStatus, syncComplete, sens;
 uint8_t   timeState, showState, DCFstate, syncPos, prevPos, prevPulse, vcc[2], bitArray[DCF77_SIZE];
 int16_t   tempRaw;
-uint32_t  currentTime, resyncTime, lastButtonTime, lastReceiveTime;
+uint32_t  currentTime, lastReceiveTime, lastResyncTime, lastButtonTime;
 
 volatile bool minuteMarker, startBit, receiveBit, receiveComplete, ticktock, button;
 volatile uint8_t receiveState, pulseType, DCFpos;
@@ -107,6 +106,7 @@ TimeStampDCF77 dCF77time;
 AlphaDisplay alpha;
 
 DateTime dt(2026, 1, 1, 0, 0, 0);
+
 #ifdef RTC_AVAIL
 RTC_DS3231 rtc;
 #endif
@@ -200,7 +200,6 @@ void setup() {
   minuteMarker = false;
   startBit = false;
   receiveBit = false;
-  lastDCFDecode = false;
   receiveComplete = false;
   ticktock = false;
   prevtock = false;
@@ -239,7 +238,7 @@ void loop() {
 #endif
   }
 
-  // show sync animation during first sync
+  //-------------------- sync animation -------------------------
   if (syncReq && timeState == TIME_SYNC) {
     // show receive pulse animation
     if (receiveState == RECEIVE_MINUTEMARKER && DCFpos < DCF77_SIZE) {
@@ -262,7 +261,7 @@ void loop() {
   }
 
 #ifdef TINY_1614
-  // read button and debounce
+  //------------- button handling and debounce ----------------
   if (button) {
     button = false;
     if (currentTime - lastButtonTime > buttonDelay) {
@@ -286,7 +285,7 @@ void loop() {
   }
 #endif
 
-  // DCF77 processing
+  //-------- state machine for receive data handling ------------
   switch (DCFstate) {
     case DCF_RECEIVING:
       if (receiveComplete) {
@@ -294,12 +293,7 @@ void loop() {
         Serial.println("DCF77 receive complete");
 #endif
         receiveComplete = false;
-        lastReceiveTime = currentTime;
         DCFstate = DCF_RECEIVECOMPLETE;
-      }
-      if (currentTime - lastReceiveTime > resyncDelay) {
-        // not received time info for longer time
-        syncTimeout = true;
       }
       break;
 
@@ -308,14 +302,14 @@ void loop() {
 #ifdef SERIALDEBUG
         Serial.println("New DCF77 decode successful");
 #endif  
-        syncTimeout = false;
-        lastDCFDecode = true;
+        lastReceiveTime = currentTime;
         DCFstate = DCF_SYNCTIME;
       }
       else {
-        lastDCFDecode = false;
         DCFstate = DCF_RECEIVING;
       }
+      // clear receive data after decoding
+      for (uint8_t i = 0; i < DCF77_SIZE; i++) bitArray[i] = 0;
       break;
 
     case DCF_SYNCTIME:
@@ -329,19 +323,24 @@ void loop() {
         while (RTC.STATUS > 0);
         RTC.CNT = 0;
 
-        syncReq = false;
+        syncComplete = true;
       }
-      lastDCFDecode = false;
       DCFstate = DCF_RECEIVING;
       break;
   }
 
-  // state machine for display handling
+  //----------- state machine for display handling ---------------
   if (ticktock != prevtock) {
     prevtock = ticktock;
 
     measureVoltage();
     if (vcc[0] < 3) showState = SHOW_LOWBATT;
+
+    if (currentTime - lastReceiveTime > receiveDelay) {
+      // not received time info for longer time
+      syncStatus = false;
+      lastReceiveTime = currentTime;
+    }
 
     switch (timeState) {
       case TIME_NOTIME:
@@ -350,8 +349,8 @@ void loop() {
         Serial.println("Waiting for DCF77 time...");
 #endif
         syncReq = true;
+        syncComplete = false;
         syncStatus = false;
-        syncTimeout = true;
         timeState = TIME_SYNC;
         showSync(SHOWSYNC_MINUTEMARKER, 0, false);
         break;
@@ -359,49 +358,41 @@ void loop() {
       case TIME_RTC:
         // on initial start with RTC time, trigger resync
         syncReq = true;
+        syncComplete = false;
         syncStatus = false;
-        syncTimeout = true;
         timeState = TIME_RESYNC;
         break;
         
       case TIME_SYNC:
-        // on initial sync, wait for first time arrival
-        if (syncReq == false) {
-#ifdef SERIALDEBUG
-          Serial.println("Sync: Time is updated");
-#endif
-          resyncTime = currentTime;
-          timeState = TIME_SYNCED;
-          syncStatus = true;
-          showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), ticktock, syncStatus);
-        }
-        break;
-
       case TIME_RESYNC:
-        // resync after startup with RTC time
-        if (syncReq == false) {
+        if (syncComplete) {
 #ifdef SERIALDEBUG
-          Serial.println("Resync: Time is updated");
+          Serial.println("Sync/Resync: Time is updated");
 #endif
-          resyncTime = currentTime;
+          lastResyncTime = currentTime;
           timeState = TIME_SYNCED;
+          syncReq = false;
           syncStatus = true;
+          syncComplete = false;
+          if (timeState == TIME_SYNC)
+            showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), ticktock, syncStatus);
         }
-        showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), ticktock, syncStatus);
+        if (timeState == TIME_RESYNC)
+          showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), ticktock, syncStatus);
         break;
       
       case TIME_SYNCED:
-        if (currentTime - resyncTime > resyncDelay && syncReq == false) {
+        if (currentTime - lastResyncTime > resyncDelay) {
+          if (syncReq == false) {
 #ifdef SERIALDEBUG
-          Serial.println("Resync: Resync started...");
+            Serial.println("Resync: Resync started...");
 #endif
-          // request DCF update
-          resyncTime = currentTime;
-          syncReq = true;
+            // request DCF update
+            syncReq = true;
+            syncComplete = false;
+            timeState = TIME_RESYNC;
+          }
         }
-        // calculate new sync status
-        if (syncReq && syncTimeout) syncStatus = false;
-
         showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), ticktock, syncStatus);
         break;
     }
@@ -459,19 +450,19 @@ int checkParity(uint8_t *bitArray)
 }
 
 //Extracts and interprets the date and time from the binary DCF77 string and writes them into a TimeStampDCF77 structure.
-int decodeDCF77(uint8_t *bitArray, TimeStampDCF77 * time)
+int decodeDCF77(uint8_t *bitArray, TimeStampDCF77 *dcf)
 {
   // Decode the bit strings according to the DCF77 specification
-  time->hour = BitScaleDCF77(bitArray + 29, 6);
-  time->minute = BitScaleDCF77(bitArray + 21, 7);
-  time->day = BitScaleDCF77(bitArray + 36, 6);
-  time->weekday = BitScaleDCF77(bitArray + 42, 3);
-  time->month = BitScaleDCF77(bitArray + 45, 5);
-  time->year = BitScaleDCF77(bitArray + 50, 8);
-  time->transmitter_fault = BitScaleDCF77(bitArray + 15, 1);
-  time->A1 = BitScaleDCF77(bitArray + 16, 1);
-  time->CEST = BitScaleDCF77(bitArray + 17, 1);
-  time->CET = BitScaleDCF77(bitArray + 18, 1);
+  dcf->hour = BitScaleDCF77(bitArray + 29, 6);
+  dcf->minute = BitScaleDCF77(bitArray + 21, 7);
+  dcf->day = BitScaleDCF77(bitArray + 36, 6);
+  dcf->weekday = BitScaleDCF77(bitArray + 42, 3);
+  dcf->month = BitScaleDCF77(bitArray + 45, 5);
+  dcf->year = BitScaleDCF77(bitArray + 50, 8);
+  dcf->transmitter_fault = BitScaleDCF77(bitArray + 15, 1);
+  dcf->A1 = BitScaleDCF77(bitArray + 16, 1);
+  dcf->CEST = BitScaleDCF77(bitArray + 17, 1);
+  dcf->CET = BitScaleDCF77(bitArray + 18, 1);
 
   if (checkParity(bitArray) == ERROR_INVALID_VALUE) {
 #ifdef SERIALDEBUG
@@ -481,7 +472,7 @@ int decodeDCF77(uint8_t *bitArray, TimeStampDCF77 * time)
   }
 
   // Check if day, month, or year have invalid (00) values
-  if (time->day == 0 || time->month == 0 || time->year == 0 || (time->CEST == time->CET)) {
+  if (dcf->day == 0 || dcf->month == 0 || dcf->year == 0 || (dcf->CEST == dcf->CET)) {
 #ifdef SERIALDEBUG
     Serial.println("\nInvalid date received.");
 #endif
