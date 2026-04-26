@@ -20,7 +20,7 @@ Temperature-sensor: DS18B20 with external pullup
 
 Pins used:<br>
 PA3 - Input, DCF-signal, input-pullup enabled, low-active signal<br>
-PA4 - Input/Output, used by tiny OnwWire-implementation (temp sensor DS18B20),
+PA4 - Input/Output, used by tiny OneWire-implementation (temp sensor DS18B20),
       external pullup 4,7K<br>
 PA6 - Output, LED which reflects the DCF-input signal<br>
 PA7 - Input, mode select button, active low with input-pullup enabled<br>
