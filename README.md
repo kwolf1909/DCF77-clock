@@ -21,14 +21,13 @@ Temperature-sensor: DS18B20 with external pullup
 Pins used:
 PA3 - Input, DCF-signal, input-pullup enabled, low-active signal<br>
 PA4 - Input/Output, used by tiny OnwWire-implementation (temp sensor DS18B20),
-      external pullup 4,7K
-PA6 - Output, LED which reflects the DCF-input signal
-PA7 - Input, mode select button, active low with input-pullup enabled
-PB0 - I2C CLK for display
-PB1 - I2C DATA for display
+      external pullup 4,7K<br>
+PA6 - Output, LED which reflects the DCF-input signal<br>
+PA7 - Input, mode select button, active low with input-pullup enabled<br>
+PB0 - I2C CLK for display<br>
+PB1 - I2C DATA for display<br>
 
-Custom built alphanumeric display used
-http://www.technoblogy.com/show?2ULE
+Custom built alphanumeric display used: http://www.technoblogy.com/show?2ULE
 
 <img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" />
  
