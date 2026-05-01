@@ -12,12 +12,12 @@
   Time with date, time with seconds, time with temperature, time with battery voltage
 
   MCU-clock: 8 MHz
-  Timers used: TCA0 (DCF signal measurement), TCB0 for OneWire implementation,
+  Timers used: TCA0 (DCF signal measurement), TCB0 (OneWire implementation),
                TCD0 (millis), RTC (2 Hz generation via interrupt)
   External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 
   Author: K. Wolf
-  Date: Apr 26th 2026
+  Date: May 1st 2026
 */
 //------------------------------------------------------------------------------------------------
 
@@ -74,7 +74,7 @@ const uint8_t pinDcf = PIN3_bm;
 const uint8_t pinLed = PIN6_bm;
 const uint8_t pinButton = PIN7_bm;
 
-const uint32_t receiveDelay = 20 * 60 * 1000L;
+const uint32_t receiveDelay = 30 * 60 * 1000L;
 const uint32_t resyncDelay = 10 * 60 * 1000L;
 const uint32_t buttonDelay = 500L;
 
@@ -336,11 +336,8 @@ void loop() {
     measureVoltage();
     if (vcc[0] < 3) showState = SHOW_LOWBATT;
 
-    if (currentTime - lastReceiveTime > receiveDelay) {
-      // not received time info for longer time
-      syncStatus = false;
-      lastReceiveTime = currentTime;
-    }
+    // update sync status
+    if (currentTime - lastReceiveTime > receiveDelay) syncStatus = false;
 
     switch (timeState) {
       case TIME_NOTIME:
@@ -352,6 +349,7 @@ void loop() {
         syncComplete = false;
         syncStatus = false;
         timeState = TIME_SYNC;
+        lastResyncTime = currentTime;
         showSync(SHOWSYNC_MINUTEMARKER, 0, false);
         break;
 
@@ -360,6 +358,7 @@ void loop() {
         syncReq = true;
         syncComplete = false;
         syncStatus = false;
+        lastResyncTime = currentTime;
         timeState = TIME_RESYNC;
         break;
         
@@ -695,9 +694,9 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 
     case SHOW_LOWBATT:
       buffer[4] = ' ';
-      buffer[5] = ' ';
-      buffer[6] = ('0' + vcc[0]) | COLON;
-      buffer[7] = '0' + vcc[1];
+      buffer[5] = ('0' + vcc[0]) | COLON;
+      buffer[6] = '0' + vcc[1];
+      buffer[7] = 'V';
       break;
   }
   buffer[8] = 0;
