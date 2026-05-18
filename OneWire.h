@@ -1,6 +1,3 @@
-#include <avr/io.h>
-#include <avr/interrupt.h>
-
 // device resolution
 #define TEMP_9_BIT    0x1F    //  9 bit
 #define TEMP_10_BIT   0x3F    // 10 bit
