@@ -56,7 +56,7 @@ const uint8_t pinDcf = PIN3_bm;
 const uint8_t pinLed = PIN6_bm;
 const uint8_t pinButton = PIN7_bm;
 
-const uint32_t syncDelay = (5 * 60 * 1000L) - (10 * 1000L);
+const uint32_t syncDelay = (30 * 60 * 1000L) - (10 * 1000L);
 const uint32_t tempDelay = 20 * 1000L;
 const uint32_t buttonDelay = 500L;
 
@@ -542,7 +542,10 @@ void readTemp(bool tock) {
   }
   else {
     if (conv) {
-      readTemperature();
+#ifdef SERIALDEBUG
+      Serial.println("Reading temperature...");
+#endif
+      tempRaw = readTemperature();
       conv = false;
     }
   }
@@ -654,7 +657,7 @@ ISR(RTC_PIT_vect) {
   RTC.PITINTFLAGS = RTC_PI_bm;
 
   tickTock = !tickTock;
-  if (tickTock == true) dt = dt + 1;
+  if (tickTock) dt = dt + 1;
 
   //PORTA.OUTTGL = pinLed;
 }
