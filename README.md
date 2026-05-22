@@ -8,7 +8,7 @@ The circuit can be powered by a LiPo-cell. If the voltage drops below 3.0 V,
 the voltage is displayed as a low voltage indicator.
 A push button switches between different display modes:
 Time with date, time with seconds, time with temperature, time with battery voltage.
-A sync to DCF-time is performed in the backgroud every 30 minutes, and immediately
+A sync to DCF-time is performed in the background every 30 minutes, and immediately
 after power-up.
 
 MCU-clock: 8 MHz,
