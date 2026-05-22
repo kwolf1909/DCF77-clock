@@ -17,7 +17,7 @@
   External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 
   Author: K. Wolf
-  Date: May 18th 2026
+  Date: May 22th 2026
 */
 //------------------------------------------------------------------------------------------------
 
@@ -33,29 +33,13 @@
 #define RTC_AVAIL
 #define ONEWIRE
 #define BUTTON
-//#define SERIALDEBUG
+#define SERIALDEBUG
 #endif
 #define SEG14
 #include "AlphaDisplay.h"
+#include "dcf77.h"
 
 #define LED
-
-#define DCF77_SUCCESS          0
-#define DCF77_INVALID         -1
-#define DCF77_SIZE            59
-
-#define TIMER_FREQ            7812  // 8 Mhz / 1024 = 7812
-#define TIMER_CMPMATCH        15625 // timer ticks (2000 ms)
-#define TIMER_TOP             32767
-#define BIT_0_MIN_DURATION    156   // timer ticks (20 ms)
-#define BIT_0_DURATION_LOW    625   // timer ticks (80 ms)
-#define BIT_0_DURATION_HIGH   938   // timer ticks (120 ms)
-#define BIT_1_DURATION_LOW    1406  // timer ticks (180 ms)
-#define BIT_1_DURATION_HIGH   1719  // timer ticks (220 ms)
-//#define TIMEOUT_DURATION_LOW  13280 // timer ticks (1700 ms)
-//#define TIMEOUT_DURATION_HIGH 14843 // timer ticks (1900 ms)
-#define TIMEOUT_DURATION_LOW  12000 // timer ticks (1700 ms)
-#define TIMEOUT_DURATION_HIGH 16000 // timer ticks (1900 ms)
 
 #define DISPLAY_ADDRESS         0x70
 #define DISPLAY_DIGITS          8
@@ -72,35 +56,20 @@ const uint8_t pinDcf = PIN3_bm;
 const uint8_t pinLed = PIN6_bm;
 const uint8_t pinButton = PIN7_bm;
 
-const uint32_t resyncDelay = 30 * 60 * 1000L;
+const uint32_t syncDelay = (5 * 60 * 1000L) - (10 * 1000L);
+const uint32_t tempDelay = 20 * 1000L;
 const uint32_t buttonDelay = 500L;
 
-struct TimeStampDCF77
-{
-  // raw DCF77 values are always in two digits
-  uint8_t minute;
-  uint8_t hour;
-  uint8_t day;
-  uint8_t weekday;
-  uint8_t month;
-  uint8_t year;
-  uint8_t A1; // change from CET to CEST or vice-versa.
-  uint8_t CEST;
-  uint8_t CET;
-  int8_t transmitter_fault;  // only relevant with very good signal
-};
+bool      syncReq, syncComplete, sens;
+uint8_t   timeState, showState, receiveState;
+int16_t   tempRaw, vcc;
+uint32_t  currentTime, lastSyncTime, lastTempTime, lastButtonTime;
 
-bool      syncReq, syncComplete, prevTock, sens;
-uint8_t   timeState, showState, receiveState, syncPos, prevPos, prevPulse, vcc[2], bitArray[DCF77_SIZE];
-int16_t   tempRaw;
-uint32_t  currentTime, lastResyncTime, lastButtonTime;
+volatile bool tickTock, button;
 
-volatile bool dcfReq, minuteMarker, startBit, receiveBit, dcfComplete, tickTock, button;
-volatile uint8_t dcfState, pulseType, DCFpos;
-volatile uint16_t lengthPulse, lengthPause;
-
-TimeStampDCF77 dCF77time;
 AlphaDisplay alpha;
+dcf77 dcf;
+timeStampDCF77 dcfTime;
 
 DateTime dt(2026, 1, 1, 0, 0, 0);
 
@@ -108,12 +77,10 @@ DateTime dt(2026, 1, 1, 0, 0, 0);
 RTC_DS3231 rtc;
 #endif
 
-enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED, TIME_RESYNC };
-enum { RECEIVE_IDLE = 1, RECEIVE_RECEIVING, RECEIVE_COMPLETE };
-enum { DCF_IDLE = 1, DCF_MINUTEMARKER, DCF_DETECT, DCF_STARTBIT, DCF_RECEIVING };
-enum { PULSE_START = 1, PULSE_END };
+enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
+enum { RECEIVE_INIT = 1, RECEIVE_IDLE, RECEIVE_RECEIVING, RECEIVE_COMPLETE };
 enum { SHOW_TIMEDATE = 1, SHOW_TIMEFULL, SHOW_TIMETEMP, SHOW_LOWBATT };
-enum { SHOWSYNC_MINUTEMARKER = 1, SHOWSYNC_RECEIVING };
+enum { SHOWSYNC_IDLE = 1, SHOWSYNC_MINUTEMARKER, SHOWSYNC_STARTBIT, SHOWSYNC_RECEIVING, SHOWSYNC_NOSIGNAL };
 
 //----------------------------------------------------------------------------------
 
@@ -187,28 +154,16 @@ void setup() {
 
   RTCinit();
   ADCinit();
-  delay(50);
-  measureVoltage();
-  setupDCF77();
-  
-  dcfState = DCF_IDLE;
-  receiveState = RECEIVE_IDLE;
+
+  // setup timer TCA0 for DCF signal processing
+  dcf.timerSetup();
+
+  receiveState = RECEIVE_INIT;
   showState = SHOW_TIMEDATE;
-  prevPulse = PULSE_END;
-  DCFpos = 0;
-  syncPos = 0;
-  prevPos = 0;
-  dcfReq = false;
-  minuteMarker = false;
-  startBit = false;
-  receiveBit = false;
-  dcfComplete = false;
-  syncComplete = false;
   tickTock = false;
-  prevTock = false;
   button = false;
 
-  lastButtonTime = millis();
+  lastButtonTime = lastTempTime = millis();
 }
 
 //----------------------------------------------------------------------------------
@@ -216,108 +171,140 @@ void setup() {
 void loop() {
   currentTime = millis();
 
-#ifdef SERIALDEBUG
-  // debug DCF77 signal
-  if (minuteMarker) {
-    minuteMarker = false;
-    Serial.println("\r\nMinute marker detected");
-  }
-  if (startBit) {
-    startBit = false;
-    Serial.println("Startbit detected");
-  }
-#endif
-  if (receiveBit && DCFpos) {
-    receiveBit = false;
-#ifdef SERIALDEBUG
-    if (bitArray[DCFpos - 1] == 0) Serial.print("0");
-    if (bitArray[DCFpos - 1] == 1) Serial.print("1");
-#endif
-#ifdef ONEWIRE
-    if (sens) {
-      if (DCFpos == 1) startConversion();
-      if (DCFpos == 2) tempRaw = readTemperature();
-    }
-#endif
-  }
+  // show sync animation and countdown
+  handleAnimation(timeState);
 
-  //-------------------- sync animation -------------------------
-  if (timeState == TIME_SYNC) {
-    if (syncReq && syncComplete == false) {
-      // show receive pulse animation
-      if (dcfReq && DCFpos == 0) {
-        if (prevPulse != pulseType) {
-          prevPulse = pulseType;
-          if (pulseType == PULSE_START) showSync(SHOWSYNC_MINUTEMARKER, syncPos, true);
-          if (pulseType == PULSE_END) showSync(SHOWSYNC_MINUTEMARKER, syncPos++, false);
-          if (syncPos > 3) syncPos = 0;
-        }
-      }
-      // show counter
-      if (dcfReq && DCFpos) {
-        if (DCFpos != prevPos) {
-          prevPos = DCFpos;
-          showSync(SHOWSYNC_RECEIVING, DCF77_SIZE - DCFpos, false);
-        }
-      }
-      // show final counter value
-      if (DCFpos == DCF77_SIZE) showSync(SHOWSYNC_RECEIVING, 0, false);
-    }
-  }
+  // state machine for receive data handling
+  receiveState = handleReceive(receiveState);
+
+  // state machine for time and display handling
+  timeState = handleTime(timeState);
 
 #ifdef BUTTON
-  //------------- button handling and debounce ----------------
-  if (button) {
-    button = false;
-    if (currentTime - lastButtonTime > buttonDelay) {
-      lastButtonTime = currentTime;
-      switch (showState) {
-        case SHOW_TIMEDATE:
-          showState = SHOW_TIMEFULL;
-          break;
-        case SHOW_TIMEFULL:
-          if (sens) showState = SHOW_TIMETEMP;
-          else showState = SHOW_LOWBATT;
-          break;
-        case SHOW_TIMETEMP:
-          showState = SHOW_LOWBATT;
-          break;
-        case SHOW_LOWBATT:
-          showState = SHOW_TIMEDATE;
-          break;
-      }
-    }
-  }
+  // switching display modes
+  showState = handleButton(showState);
 #endif
 
-  //-------- state machine for receive data handling ------------
-  switch (receiveState) {
-    case RECEIVE_IDLE:
-      if (syncReq) {
-        dcfReq = true;
-        syncComplete = false;
-        dcfComplete = false;
-        receiveState = RECEIVE_RECEIVING;
+  delay(20);
+}
+
+//----------------------------------------------------------------------------------
+
+void handleAnimation(uint8_t timeState) {
+
+  uint8_t pos;
+  dcf77::dcfState dcfState;
+  static uint8_t syncState, syncPos, prevPos;
+  static dcf77::pulseType pulse, prevPulse;
+
+  dcfState = dcf.getState();
+
+  if (timeState != TIME_SYNC) {
+    syncState = SHOWSYNC_IDLE;
+    return;
+  }
+
+  if (dcf.getSignalStatus() == false) syncState = SHOWSYNC_NOSIGNAL;
+
+  switch (syncState) {
+    case SHOWSYNC_IDLE:
+      syncPos = 0;
+      prevPos = 0;
+      prevPulse = dcf77::pulseType::END;
+      if (dcfState == dcf77::dcfState::MINUTEMARKER) syncState = SHOWSYNC_MINUTEMARKER;
+      break;
+
+    case SHOWSYNC_MINUTEMARKER:
+#ifdef SERIALDEBUG
+      if (dcf.checkMinuteMarker()) Serial.println("\r\nMinute marker detected");
+#endif
+      // show receive pulse animation
+      pulse = dcf.getLastPulseType();
+      if (prevPulse != pulse) {
+        prevPulse = pulse;
+        if (pulse == dcf77::pulseType::START) showSync(syncState, syncPos, true);
+        if (pulse == dcf77::pulseType::END) showSync(syncState, syncPos++, false);
+        if (syncPos > 3) syncPos = 0;
+      }
+      if (dcfState == dcf77::dcfState::STARTBIT) {
+        showSync(SHOWSYNC_STARTBIT, 0, false);
+        syncState = SHOWSYNC_STARTBIT;
       }
       break;
 
-    case RECEIVE_RECEIVING:
-      if (dcfComplete) {
+    case SHOWSYNC_STARTBIT:
 #ifdef SERIALDEBUG
-        Serial.println("DCF77 receive complete");
+      if (dcf.checkStartBit()) Serial.println("Startbit detected");
 #endif
-        dcfComplete = false;
-        receiveState = RECEIVE_COMPLETE;
+      if (dcfState == dcf77::dcfState::RECEIVING) {
+        showSync(SHOWSYNC_RECEIVING, 0, false);
+        syncState = SHOWSYNC_RECEIVING;
+      }
+      break;
+
+    case SHOWSYNC_RECEIVING:
+      // show counter
+      pos = dcf.getPos();
+      if (pos != prevPos) {
+        prevPos = pos;
+#ifdef SERIALDEBUG
+        if (dcf.getBit(pos - 1)) Serial.print("1"); else Serial.print("0");
+#endif
+        showSync(syncState, DCF_SIZE - pos, false);
+      }
+      // show final counter value
+      if (dcfState == dcf77::dcfState::MINUTEMARKER)
+        if (pos == DCF_SIZE) showSync(syncState, 0, false);
+
+      if (dcfState == dcf77::dcfState::IDLE) syncState = SHOWSYNC_IDLE;
+      break;
+
+    case SHOWSYNC_NOSIGNAL:
+      showSync(syncState, 0, false);
+      syncState = SHOWSYNC_IDLE;
+      break;
+  }
+}
+
+//----------------------------------------------------------------------------------
+
+uint8_t handleReceive(uint8_t state) {
+
+  switch (state) {
+    case RECEIVE_INIT:
+      lastSyncTime = currentTime;
+      syncReq = true;
+      syncComplete = false;
+      return RECEIVE_IDLE;
+
+    case RECEIVE_IDLE:
+      if (syncReq) {
+#ifdef SERIALDEBUG
+        Serial.println("\r\nSync: Started...");
+#endif
+        dcf.request();
+        return RECEIVE_RECEIVING;
+      }
+      if (currentTime - lastSyncTime > syncDelay) syncReq = true;
+      break;
+
+    case RECEIVE_RECEIVING:
+      if (dcf.checkComplete()) {
+#ifdef SERIALDEBUG
+        Serial.println("\r\nDCF77 receive complete");
+#endif
+        return RECEIVE_COMPLETE;
       }
       break;
 
     case RECEIVE_COMPLETE:
-      if (decodeDCF77(bitArray, &dCF77time) == DCF77_SUCCESS) {
+      if (dcf.decode(&dcfTime) == dcf77::result::SUCCESS) {
 #ifdef SERIALDEBUG
         Serial.println("DCF77 decode successful");
+        //Serial.printf("DCF77-Time: %02u:%02u\r\n", dcfTime.hour, dcfTime.minute);
 #endif
         // update local time
-        dt = DateTime(dCF77time.year, dCF77time.month, dCF77time.day, dCF77time.hour, dCF77time.minute, 0);
+        dt = DateTime(dcfTime.year, dcfTime.month, dcfTime.day, dcfTime.hour, dcfTime.minute, 0);
 #ifdef RTC_AVAIL
         rtc.adjust(dt);
 #endif
@@ -328,324 +315,123 @@ void loop() {
         // job done
         syncComplete = true;
         syncReq = false;
-        receiveState = RECEIVE_IDLE;
+        lastSyncTime = currentTime;
+        return RECEIVE_IDLE;
       }
       else {
 #ifdef SERIALDEBUG
         Serial.println("DCF77 decode failed!");
 #endif
         // trigger new DCF receiving cycle
-        dcfReq = true;
-        receiveState = RECEIVE_RECEIVING;
+        dcf.request();
+        return RECEIVE_RECEIVING;
       }
-      break;
   }
+  return state;
+}
 
-  //----------- state machine for display handling ---------------
+//----------------------------------------------------------------------------------
+
+uint8_t handleTime(uint8_t state) {
+
+  static bool prevTock = false;
+
   if (tickTock != prevTock) {
     prevTock = tickTock;
 
-    measureVoltage();
-    if (vcc[0] < 3) showState = SHOW_LOWBATT;
+    // show voltage if low (< 3V)
+    vcc = measureVoltage();
+    if ((vcc >> 8) < 3) showState = SHOW_LOWBATT;
 
-    switch (timeState) {
+    // read temperature
+#ifdef ONEWIRE
+    readTemp(tickTock);
+#endif
+
+    switch (state) {
       case TIME_NOTIME:
         // with no RTC-time, wait for DCF-time
-#ifdef SERIALDEBUG
-        Serial.println("\r\nSync: Started...");
-#endif
-        syncReq = true;
-        timeState = TIME_SYNC;
         showSync(SHOWSYNC_MINUTEMARKER, 0, false);
-        break;
+        return TIME_SYNC;
 
       case TIME_RTC:
-        // on initial start with RTC time, trigger resync
-#ifdef SERIALDEBUG
-        Serial.println("\r\nResync: Started...");
-#endif
-        syncReq = true;
-        timeState = TIME_RESYNC;
-        break;
+        // on initial start with RTC time, show time
+        return TIME_SYNCED;
 
       case TIME_SYNC:
         if (syncComplete) {
-#ifdef SERIALDEBUG
-          Serial.println("Sync: Time is updated");
-#endif
-          lastResyncTime = currentTime;
-          showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), tickTock, syncReq);
-          timeState = TIME_SYNCED;
+          syncComplete = false;
+          return TIME_SYNCED;
         }
-        break;
-
-      case TIME_RESYNC:
-        if (syncComplete) {
-#ifdef SERIALDEBUG
-          Serial.println("Resync: Time is updated");
-#endif
-          lastResyncTime = currentTime;
-          timeState = TIME_SYNCED;
-        }
-        showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), tickTock, syncReq);
         break;
 
       case TIME_SYNCED:
-        if (currentTime - lastResyncTime > resyncDelay) {
-          if (syncReq == false) {
-#ifdef SERIALDEBUG
-            Serial.println("\r\nResync: Started...");
-#endif
-            // request DCF update
-            syncReq = true;
-            timeState = TIME_RESYNC;
-          }
-        }
         showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), tickTock, syncReq);
         break;
     }
   }
-  delay(10);
+  return state;
 }
 
 //----------------------------------------------------------------------------------
 
-void setupDCF77(void)
-{
-  cli();
-  TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc;
-  TCA0.SINGLE.CTRLD = 0;
-  TCA0.SINGLE.CTRLECLR = TCA_SINGLE_DIR_bm;
-  TCA0.SINGLE.CMP0 = TIMER_CMPMATCH;
-  TCA0.SINGLE.PER = TIMER_TOP;
-  TCA0.SINGLE.INTCTRL = TCA_SINGLE_CMP0EN_bm;
-  TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1024_gc | TCA_SINGLE_ENABLE_bm;
-  sei();
-}
+#ifdef BUTTON
+uint8_t handleButton(uint8_t state) {
 
-int BitScaleDCF77(uint8_t *bitstring, uint8_t length)
-{
-  static const int weights[] = {1, 2, 4, 8, 10, 20, 40, 80};
-  int value = 0;
-  static const int weights_len = 8;
+  if (button) {
+    button = false;
+    if (currentTime - lastButtonTime > buttonDelay) {
+      lastButtonTime = currentTime;
+      switch (state) {
+        case SHOW_TIMEDATE:
+          return SHOW_TIMEFULL;
 
-  for (int i = 0; i < length && i < weights_len; i++) value += weights[i] * bitstring[i];
+        case SHOW_TIMEFULL:
+          if (sens) return SHOW_TIMETEMP;
+          else return SHOW_LOWBATT;
 
-  return value;
-}
+        case SHOW_TIMETEMP:
+          return SHOW_LOWBATT;
 
-int checkParity(uint8_t *bitArray)
-{
-  //DCF77 uses even parity
-  uint8_t minuteParity = 0;
-  uint8_t hourParity = 0;
-  uint8_t dateParity = 0;
-
-  // Calculate parity for minute
-  for (uint8_t i = 21; i < 28; ++i) minuteParity ^= bitArray[i];
-
-  // Calculate parity for hour
-  for (uint8_t i = 29; i < 35; ++i) hourParity ^= bitArray[i];
-
-  // Calculate parity for date
-  for (uint8_t i = 36; i < 58; ++i) dateParity ^= bitArray[i];
-
-  // Check the parity bits for minutes and hours
-  if ((minuteParity != bitArray[28]) || (hourParity != bitArray[35]) || (dateParity != bitArray[58]))
-    return DCF77_INVALID; // Parity error
-
-  return DCF77_SUCCESS;
-}
-
-//Extracts and interprets the date and time from the binary DCF77 string and writes them into a TimeStampDCF77 structure.
-int decodeDCF77(uint8_t *bitArray, TimeStampDCF77 *dcf)
-{
-  // Decode the bit strings according to the DCF77 specification
-  dcf->hour = BitScaleDCF77(bitArray + 29, 6);
-  dcf->minute = BitScaleDCF77(bitArray + 21, 7);
-  dcf->day = BitScaleDCF77(bitArray + 36, 6);
-  dcf->weekday = BitScaleDCF77(bitArray + 42, 3);
-  dcf->month = BitScaleDCF77(bitArray + 45, 5);
-  dcf->year = BitScaleDCF77(bitArray + 50, 8);
-  dcf->transmitter_fault = BitScaleDCF77(bitArray + 15, 1);
-  dcf->A1 = BitScaleDCF77(bitArray + 16, 1);
-  dcf->CEST = BitScaleDCF77(bitArray + 17, 1);
-  dcf->CET = BitScaleDCF77(bitArray + 18, 1);
-
-  if (checkParity(bitArray) == DCF77_INVALID) {
-#ifdef SERIALDEBUG
-    Serial.println("\r\nParity error in hour or minute.");
-#endif
-    return DCF77_INVALID;
-  }
-
-  // Check if day, month, or year have invalid (00) values
-  if (dcf->day == 0 || dcf->month == 0 || dcf->year == 0 || (dcf->CEST == dcf->CET)) {
-#ifdef SERIALDEBUG
-    Serial.println("\r\nInvalid date received.");
-#endif
-    return DCF77_INVALID; // The date is not plausible
-  }
-  return DCF77_SUCCESS;
-}
-
-//----------------------------------------------------------------------------------
-
-ISR(PORTA_PORT_vect) {
-
-  // detect DCF77 signal
-  if (PORTA.INTFLAGS & pinDcf) {
-    PORTA.INTFLAGS = pinDcf;
-
-    // filter noise
-    if (TCA0.SINGLE.CNT < BIT_0_MIN_DURATION) {
-      TCA0.SINGLE.CNT = 0;
-      return;
-    }
-
-    if (PORTA.IN & pinDcf) {
-      // edge low to high
-#ifdef LED
-      PORTA.OUTCLR = pinLed;
-#endif
-      lengthPulse = TCA0.SINGLE.CNT;
-      TCA0.SINGLE.CNT = 0;
-      pulseType = PULSE_END;
-    } else {
-      // edge high to low
-#ifdef LED
-      if (dcfReq) PORTA.OUTSET = pinLed;
-#endif
-      lengthPause = TCA0.SINGLE.CNT;
-      TCA0.SINGLE.CNT = 0;
-      pulseType = PULSE_START;
-    }
-
-    switch (dcfState) {
-      case DCF_IDLE:
-        if (dcfReq) {
-          dcfComplete = false;
-          dcfState = DCF_DETECT;
-        }
-        break;
-
-      case DCF_DETECT:
-        // wait for first valid pulse
-        if (pulseType == PULSE_END) {
-          if ((lengthPulse >= BIT_0_DURATION_LOW && lengthPulse <= BIT_0_DURATION_HIGH) ||
-              (lengthPulse >= BIT_1_DURATION_LOW && lengthPulse <= BIT_1_DURATION_HIGH)) {
-            // first valid pulse detected
-            dcfState = DCF_MINUTEMARKER;
-          }
-        }
-        break;
-
-      case DCF_MINUTEMARKER:
-        if (pulseType == PULSE_START) {
-          if (lengthPause >= TIMEOUT_DURATION_LOW && lengthPause <= TIMEOUT_DURATION_HIGH) {
-            // minute marker detected
-            minuteMarker = true;
-            // this triggers data processing
-            if (DCFpos == DCF77_SIZE) {
-              dcfComplete = true;
-              dcfReq = false;
-              dcfState = DCF_IDLE;
-              break;
-            }
-            DCFpos = 0;
-            // clear receive data buffer
-            for (uint8_t i = 0; i < DCF77_SIZE; i++) bitArray[i] = 0;
-            dcfState = DCF_STARTBIT;
-          }
-        }
-        break;
-
-      case DCF_STARTBIT:
-        if (pulseType == PULSE_END) {
-          if (lengthPulse >= BIT_0_DURATION_LOW && lengthPulse <= BIT_0_DURATION_HIGH) {
-            bitArray[0] = 0;
-            startBit = true;
-            DCFpos = 1;
-            dcfState = DCF_RECEIVING;
-          }
-          if (lengthPulse < BIT_0_DURATION_LOW || lengthPulse > BIT_1_DURATION_HIGH) {
-            // receive signal error
-            DCFpos = 0;
-            dcfState = DCF_MINUTEMARKER;
-          }
-        }
-        break;
-
-      case DCF_RECEIVING:
-        if (pulseType == PULSE_END) {
-          if (lengthPulse >= BIT_0_DURATION_LOW && lengthPulse <= BIT_0_DURATION_HIGH) {
-            bitArray[DCFpos] = 0;
-            receiveBit = true;
-          }
-          if (lengthPulse >= BIT_1_DURATION_LOW && lengthPulse <= BIT_1_DURATION_HIGH) {
-            bitArray[DCFpos] = 1;
-            receiveBit = true;
-          }
-          if (lengthPulse < BIT_0_DURATION_LOW || lengthPulse > BIT_1_DURATION_HIGH) {
-            // receive signal error
-            DCFpos = 0;
-            dcfState = DCF_MINUTEMARKER;
-          }
-          // finally weit for next minute marker to complete
-          if (++DCFpos == DCF77_SIZE) dcfState = DCF_MINUTEMARKER;
-        }
-        break;
+        case SHOW_LOWBATT:
+          return SHOW_TIMEDATE;
+      }
     }
   }
-
-  // detect button press
-  if (PORTA.INTFLAGS & pinButton) {
-    PORTA.INTFLAGS = pinButton;
-    button = true;
-  }
+  return state;
 }
-
-ISR(TCA0_CMP0_vect) {
-  TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm;
-  TCA0.SINGLE.CNT = 0;
-
-  //PORTA.OUTTGL = pinLed;
-}
-
-// the RTC interrupt is called twice a seconds
-ISR(RTC_PIT_vect) {
-  RTC.PITINTFLAGS = RTC_PI_bm;
-
-  tickTock = !tickTock;
-  if (tickTock == true) dt = dt + 1;
-
-  //PORTA.OUTTGL = pinLed;
-}
+#endif
 
 //----------------------------------------------------------------------------------
 
 void showSync(uint8_t showMode, uint8_t pos, bool sync) {
   char buffer[9];
 
-  buffer[0] = 'S';
-  buffer[1] = 'Y';
-  buffer[2] = 'N';
-  buffer[3] = 'C';
-  buffer[4] = buffer[5] = buffer[6] = buffer[7] = ' ';
-
   switch (showMode) {
     case SHOWSYNC_MINUTEMARKER:
+      strcpy(buffer, "SYNC    ");
       if (pos > 3) return;
       if (sync) buffer[4 + pos] = ' ' | COLON;
       break;
 
+    case SHOWSYNC_STARTBIT:
+      strcpy(buffer, "START   ");
+      break;
+
     case SHOWSYNC_RECEIVING:
+      strcpy(buffer, "RECV    ");
       if (pos >= 10) buffer[6] = '0' + pos / 10;
       buffer[7] = '0' + pos % 10;
+      break;
+
+    case SHOWSYNC_NOSIGNAL:
+      strcpy(buffer, "NOSIGNAL");
   }
   buffer[8] = 0;
   alpha.print(buffer);
 }
+
+//----------------------------------------------------------------------------------
 
 void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uint8_t d, bool colon, bool sync) {
   char buffer[9];
@@ -654,10 +440,11 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
   buffer[0] = '0' + hr / 10;
   buffer[1] = ('0' + hr % 10) | (colon ? COLON : 0);
   buffer[2] = '0' + min / 10;
-  buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
 
   switch (mode) {
     case SHOW_TIMEDATE:
+      buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
+
       if (d >= 10 && m >= 10) {
         buffer[4] = '0' + d / 10;
         buffer[5] = ('0' + d % 10) | COLON;
@@ -685,8 +472,9 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
       break;
 
     case SHOW_TIMEFULL:
+      buffer[3] = ('0' + min % 10) | COLON;
       buffer[4] = '0' + sec / 10;
-      buffer[5] = '0' + sec % 10;
+      buffer[5] = ('0' + sec % 10) | (sync ? COLON : 0);
       buffer[6] = ' ';
       buffer[7] = ' ';
       break;
@@ -695,6 +483,9 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
     case SHOW_TIMETEMP:
       int8_t temp;
       uint8_t tenth;
+
+      buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
+
       temp = tempRaw >> 4;
       tenth = ((tempRaw & 0x0F) * 10) >> 4;
       // check for invalid range
@@ -720,15 +511,45 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 #endif
 
     case SHOW_LOWBATT:
+      buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
       buffer[4] = ' ';
-      buffer[5] = ('0' + vcc[0]) | COLON;
-      buffer[6] = '0' + vcc[1];
+      buffer[5] = ('0' + (vcc >> 8)) | COLON;
+      buffer[6] = '0' + (vcc & 0x0F);
       buffer[7] = 'V';
       break;
   }
   buffer[8] = 0;
   alpha.print(buffer);
 }
+
+//----------------------------------------------------------------------------------
+
+#ifdef ONEWIRE
+void readTemp(bool tock) {
+
+  static bool conv = false;
+
+  dcf77::dcfState dcfState = dcf.getState();
+  
+  if (!sens || dcfState != dcf77::dcfState::IDLE) return;
+
+  if (tock) {
+    if (currentTime - lastTempTime > tempDelay) {
+      lastTempTime = currentTime;
+      startConversion();
+      conv = true;
+    }
+  }
+  else {
+    if (conv) {
+      readTemperature();
+      conv = false;
+    }
+  }
+}
+#endif
+
+//----------------------------------------------------------------------------------
 
 void RTCinit(void) {
 
@@ -768,11 +589,72 @@ void ADCinit(void) {
   ADC0.CTRLA = ADC_ENABLE_bm;
 }
 
-void measureVoltage(void) {
+uint16_t measureVoltage(void) {
   ADC0.COMMAND = ADC_STCONV_bm;
   while (ADC0.COMMAND & ADC_STCONV_bm);
   uint16_t adc_reading = ADC0.RES;
   uint16_t voltage = 11264 / adc_reading;
-  vcc[0] = voltage / 10;
-  vcc[1] = voltage % 10;
+  return (voltage / 10) << 8 | (voltage % 10);
+}
+
+//---------------------------------------- ISR ---------------------------------------
+
+ISR(PORTA_PORT_vect) {
+
+  uint16_t lengthSignal;
+
+  // detect DCF77 signal
+  if (PORTA.INTFLAGS & pinDcf) {
+    PORTA.INTFLAGS = pinDcf;
+
+    // filter noise
+    if (TCA0.SINGLE.CNT < BIT_0_MIN_DURATION) {
+      TCA0.SINGLE.CNT = 0;
+      return;
+    }
+
+    if (PORTA.IN & pinDcf) {
+      // edge low to high
+#ifdef LED
+      PORTA.OUTCLR = pinLed;
+#endif
+      lengthSignal = TCA0.SINGLE.CNT;
+      TCA0.SINGLE.CNT = 0;
+      dcf.handleInt(dcf77::pulseType::END, lengthSignal);
+    } else {
+      // edge high to low
+#ifdef LED
+      //PORTA.OUTSET = pinLed;
+      if (dcf.getRequestState()) PORTA.OUTSET = pinLed;
+#endif
+      lengthSignal = TCA0.SINGLE.CNT;
+      TCA0.SINGLE.CNT = 0;
+      dcf.handleInt(dcf77::pulseType::START, lengthSignal);
+    }
+  }
+
+  // detect button press
+  if (PORTA.INTFLAGS & pinButton) {
+    PORTA.INTFLAGS = pinButton;
+    button = true;
+  }
+}
+
+ISR(TCA0_CMP0_vect) {
+  TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm;
+  TCA0.SINGLE.CNT = 0;
+
+  dcf.noSignal();
+
+  //PORTA.OUTTGL = pinLed;
+}
+
+// the RTC interrupt is called twice a seconds
+ISR(RTC_PIT_vect) {
+  RTC.PITINTFLAGS = RTC_PI_bm;
+
+  tickTock = !tickTock;
+  if (tickTock == true) dt = dt + 1;
+
+  //PORTA.OUTTGL = pinLed;
 }
