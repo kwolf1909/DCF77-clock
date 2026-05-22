@@ -10,6 +10,9 @@ A push button switches between different display modes:
 Time with date, time with seconds, time with temperature, time with battery voltage.
 A sync to DCF-time is performed in the background every 30 minutes, and immediately
 after power-up.
+The software uses a layer-based approach. Low-level: DCF-object with interrupt handler,
+mid-level: receiving data state machine, upper level: display handling. No blocking
+code exists, fully asynchronous operation.
 
 MCU-clock: 8 MHz,
 Timers used: TCA0 (DCF signal processing), TCB0 (timing for OneWire),
