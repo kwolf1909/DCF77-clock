@@ -16,8 +16,8 @@
                TCD0 (millis), RTC (2 Hz generation via interrupt)
   External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 
-  Author: K. Wolf
-  Date: May 28th 2026
+  Author: Klaus Wolf
+  Date: June 03rd 2026
 */
 //------------------------------------------------------------------------------------------------
 
@@ -26,7 +26,7 @@
 #include "DateTime.h"
 #define TINYWIRE
 #endif
-#if defined(__AVR_ATtiny814__) | defined(__AVR_ATtiny1614__)
+#if defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
 #include <Wire.h>
 #include <RTClib.h>
 #include "OneWire.h"
@@ -98,7 +98,7 @@ void setup() {
 
 #ifdef LED
   PORTA.DIRSET = pinLed;
-  PORTA.OUTCLR = pinLed;
+  PORTA.OUTSET = pinLed;
 #endif
 
 #ifdef BUTTON
@@ -129,7 +129,7 @@ void setup() {
     tempRaw = readTemperature();
 
     alpha.print("TEMP OK ");
-    delay(1000);
+    delay(1500);
   }
 #endif
 
@@ -137,20 +137,15 @@ void setup() {
 #ifdef RTC_AVAIL
   // initialize external RTC
   if (rtc.begin()) {
-    if (rtc.lostPower()) {
-      rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0));
-    }
-    else {
-      dt = rtc.now();
-      timeState = TIME_RTC;
-    }
+    if (rtc.lostPower()) rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0));
+    else timeState = TIME_RTC;
+    
     rtc.enable32K();
-
     alpha.print("RTC OK  ");
-    delay(1000);
   }
+  else alpha.print("RTC FAIL");
+  delay(1500);
 #endif
-  alpha.clear();
 
   RTCinit();
   ADCinit();
@@ -165,6 +160,13 @@ void setup() {
   button = false;
 
   lastButtonTime = lastTempTime = millis();
+
+  alpha.print("--------");
+  
+  // setup finished
+#ifdef LED
+  PORTA.OUTCLR = pinLed;
+#endif
 }
 
 //----------------------------------------------------------------------------------
@@ -347,11 +349,11 @@ uint8_t handleTime(uint8_t state) {
     switch (state) {
       case TIME_NOTIME:
         // with no RTC-time, wait for DCF-time
-        //showSync(SHOWSYNC_MINUTEMARKER, 0, false);
         return TIME_SYNC;
 
       case TIME_RTC:
-        // on initial start with RTC time, show time
+        // initial start with RTC time
+        dt = rtc.now();
         return TIME_SYNCED;
 
       case TIME_SYNC:
