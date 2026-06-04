@@ -17,7 +17,7 @@
   External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 
   Author: Klaus Wolf
-  Date: June 03rd 2026
+  Date: June 04th 2026
 */
 //------------------------------------------------------------------------------------------------
 
@@ -475,23 +475,22 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 
 #ifdef ONEWIRE
     case SHOW_TIMETEMP:
+      bool negative;
       int8_t temp;
       uint8_t tenth;
 
       buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
 
+      // convert the raw temperature of a DS18B20 into whole and fractional value
       temp = tempRaw >> 4;
-      tenth = ((tempRaw & 0x0F) * 10) >> 4;
-      // check for invalid range
-      if (temp < -9 || temp > 50) {
-        buffer[4] = '-';
-        buffer[5] = '-' | COLON;
-        buffer[6] = '-';
-        buffer[7] = 'C';
-        break;
-      }
-      if (temp < 0) {
-        temp = -temp;
+      negative = (tempRaw & 0x8000) != 0; 
+
+      if (negative) tempRaw = (~tempRaw) + 1;
+
+      temp = tempRaw >> 4;
+      tenth = (tempRaw & 0x0F) * 625 / 1000;
+
+      if (negative) {
         buffer[4] = '-';
         buffer[5] = ('0' + temp) | COLON;
       }
