@@ -17,7 +17,7 @@
   External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 
   Author: Klaus Wolf
-  Date: June 04th 2026
+  Date: June 05th 2026
 */
 //------------------------------------------------------------------------------------------------
 
@@ -56,7 +56,7 @@ const uint8_t pinDcf = PIN3_bm;
 const uint8_t pinLed = PIN6_bm;
 const uint8_t pinButton = PIN7_bm;
 
-const uint32_t syncDelay = (30 * 60 * 1000L) - (10 * 1000L);
+const uint32_t syncDelay = 30 * 60 * 1000L;
 const uint32_t tempDelay = 20 * 1000L;
 const uint32_t buttonDelay = 500L;
 
@@ -80,7 +80,7 @@ RTC_DS3231 rtc;
 enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
 enum { RECEIVE_INIT = 1, RECEIVE_IDLE, RECEIVE_RECEIVING, RECEIVE_COMPLETE };
 enum { SHOW_TIMEDATE = 1, SHOW_TIMEFULL, SHOW_TIMETEMP, SHOW_LOWBATT };
-enum { SHOWSYNC_IDLE = 1, SHOWSYNC_MINUTEMARKER, SHOWSYNC_STARTBIT, SHOWSYNC_RECEIVING, SHOWSYNC_NOSIGNAL };
+enum { SHOWSYNC_IDLE = 1, SHOWSYNC_MINUTEMARKER, SHOWSYNC_STARTBIT, SHOWSYNC_RECEIVING, SHOWSYNC_NOSIGNAL, SHOWSYNC_WAITSIGNAL };
 
 //----------------------------------------------------------------------------------
 
@@ -201,16 +201,15 @@ uint8_t handleAnimation(uint8_t state) {
   static dcf77::pulseType pulse, prevPulse;
 
   if (timeState != TIME_SYNC) return SHOWSYNC_IDLE;
+  if (dcf.getSignalStatus() == false) state = SHOWSYNC_NOSIGNAL;
   
   dcfState = dcf.getState();
   
   switch (state) {
     case SHOWSYNC_IDLE:
-      syncPos = 0;
-      prevPos = 0;
       prevPulse = dcf77::pulseType::END;
+      if (dcf.getPos() == DCF_SIZE) break;
       if (dcfState == dcf77::dcfState::MINUTEMARKER) return SHOWSYNC_MINUTEMARKER;
-      if (dcf.getSignalStatus() == false) return SHOWSYNC_NOSIGNAL;
       break;
 
     case SHOWSYNC_MINUTEMARKER:
@@ -225,24 +224,24 @@ uint8_t handleAnimation(uint8_t state) {
         if (pulse == dcf77::pulseType::END) showSync(state, syncPos++, false);
         if (syncPos > 3) syncPos = 0;
       }
-      if (dcfState == dcf77::dcfState::STARTBIT) return SHOWSYNC_STARTBIT;
-      if (dcf.getSignalStatus() == false) return SHOWSYNC_NOSIGNAL;
+      if (dcfState == dcf77::dcfState::STARTBIT) {
+        syncPos = 0;
+        prevPos = 0;
+        return SHOWSYNC_STARTBIT;
+      }
       break;
 
     case SHOWSYNC_STARTBIT:
 #ifdef SERIALDEBUG
       if (dcf.checkStartBit()) Serial.println("Startbit detected");
 #endif
-      if (dcfState == dcf77::dcfState::RECEIVING) {
-        showSync(SHOWSYNC_RECEIVING, 0, false);
-        return SHOWSYNC_RECEIVING;
-      }
+      if (dcfState == dcf77::dcfState::RECEIVING) return SHOWSYNC_RECEIVING;
       break;
 
     case SHOWSYNC_RECEIVING:
       // show counter
       pos = dcf.getPos();
-      if (pos > prevPos) {
+      if (pos && pos != prevPos) {
         prevPos = pos;
 #ifdef SERIALDEBUG
         if (dcf.getBit(pos - 1)) Serial.print("1"); else Serial.print("0");
@@ -251,15 +250,17 @@ uint8_t handleAnimation(uint8_t state) {
       }
       // show final counter value
       if (dcfState == dcf77::dcfState::MINUTEMARKER) {
-       if (pos == DCF_SIZE) showSync(state, 0, false);
-       else return SHOWSYNC_IDLE;
+        if (pos == DCF_SIZE) showSync(state, 0, false);
+        return SHOWSYNC_IDLE;
       }
-      if (dcf.getSignalStatus() == false) return SHOWSYNC_NOSIGNAL;
       break;
 
     case SHOWSYNC_NOSIGNAL:
       showSync(state, 0, false);
-      return SHOWSYNC_IDLE;
+      return SHOWSYNC_WAITSIGNAL;
+    
+    case SHOWSYNC_WAITSIGNAL:
+      if (dcf.getSignalStatus()) return SHOWSYNC_IDLE;
   }
   return syncState;
 }
@@ -351,11 +352,12 @@ uint8_t handleTime(uint8_t state) {
         // with no RTC-time, wait for DCF-time
         return TIME_SYNC;
 
+#ifdef RTC_AVAIL
       case TIME_RTC:
         // initial start with RTC time
         dt = rtc.now();
         return TIME_SYNCED;
-
+#endif
       case TIME_SYNC:
         if (syncComplete) {
           syncComplete = false;
