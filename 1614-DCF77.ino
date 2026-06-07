@@ -433,7 +433,7 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
   char buffer[9];
 
   // show time
-  buffer[0] = '0' + hr / 10;
+  buffer[0] = hr >= 10 ? ('0' + hr / 10) : ' ';
   buffer[1] = ('0' + hr % 10) | (colon ? COLON : 0);
   buffer[2] = '0' + min / 10;
 
