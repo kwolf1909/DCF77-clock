@@ -1,24 +1,22 @@
 //------------------------------------------------------------------------------------------------
-/*
-  1614-DCF77.ino
-
-  This program receives the european DCF77 time signal and syncs it with the external RTC-clock.
-  It is displayed on an 8-digit alphanumeric- or 7-segment display with display-controller HT16K33.
-  The MCU used is an ATtiny 814 or 1614. Without serial debugging and OneWire, an ATtiny 412
-  can be used. The MCU used is selected by setting the appropriate #define statement.
-  The circuit can be powered by a LiPo-cell. If the voltage drops below 3.0 V,
-  the voltage is displayed as a low voltage indicator.
-  A push button switches between different display modes:
-  Time with date, time with seconds, time with temperature, time with battery voltage
-
-  MCU-clock: 8 MHz
-  Timers used: TCA0 (DCF signal measurement), TCB0 (OneWire implementation),
-               TCD0 (millis), RTC (2 Hz generation via interrupt)
-  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
-
-  Author: Klaus Wolf
-  Date: June 05th 2026
-*/
+//  1614-DCF77.ino
+//
+//  This program receives the european DCF77 time signal and syncs it with the external RTC-clock.
+//  It is displayed on an 8-digit alphanumeric- or 7-segment display with display-controller HT16K33.
+//  The MCU used is an ATtiny 814 or 1614. Without serial debugging and OneWire, an ATtiny 412
+//  can be used. The MCU used is selected by setting the appropriate #define statement.
+//  The circuit can be powered by a LiPo-cell. If the voltage drops below 3.0 V,
+//  the voltage is displayed as a low voltage indicator.
+//  A push button switches between different display modes:
+//  Time with date, time with seconds, time with temperature, time with battery voltage
+//
+//  MCU-clock: 8 MHz
+//  Timers used: TCA0 (DCF signal measurement), TCB0 (OneWire timing),
+//               TCD0 (millis), RTC (2 Hz generation via interrupt)
+//  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
+//
+//  Author: Klaus Wolf
+//  Date: June 14th 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -62,7 +60,8 @@ const uint32_t buttonDelay = 500L;
 
 bool      syncReq, syncComplete, sens;
 uint8_t   timeState, showState, receiveState, syncState;
-int16_t   tempRaw, vcc;
+int16_t   temp;
+uint16_t  vcc;
 uint32_t  currentTime, lastSyncTime, lastTempTime, lastButtonTime;
 
 volatile bool tickTock, button;
@@ -75,6 +74,10 @@ DateTime dt(2026, 1, 1, 0, 0, 0);
 
 #ifdef RTC_AVAIL
 RTC_DS3231 rtc;
+#endif
+
+#ifdef ONEWIRE
+OneWire ow(ONEWIRE_PIN);
 #endif
 
 enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
@@ -119,14 +122,14 @@ void setup() {
 
   sens = false;
 #ifdef ONEWIRE
-  oneWireSetup(ONEWIRE_PIN);
-  delay(50);
-  setResolution(ONEWIRE_RESOLUTION);
-  delay(50);
-  if (startConversion()) {
+  ow.setup();
+  delay(100);
+  ow.setResolution(ONEWIRE_RESOLUTION);
+  delay(100);
+  if (ow.startConversion()) {
     sens = true;
     delay(500);
-    tempRaw = readTemperature();
+    temp = ow.readTemperature();
 
     alpha.print("TEMP OK ");
     delay(1500);
@@ -431,16 +434,15 @@ void showSync(uint8_t showMode, uint8_t pos, bool sync) {
 
 void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uint8_t d, bool colon, bool sync) {
   char buffer[9];
-
+  
   // show time
   buffer[0] = hr >= 10 ? ('0' + hr / 10) : ' ';
   buffer[1] = ('0' + hr % 10) | (colon ? COLON : 0);
   buffer[2] = '0' + min / 10;
-
+  buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
+  
   switch (mode) {
     case SHOW_TIMEDATE:
-      buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
-
       if (d >= 10 && m >= 10) {
         buffer[4] = '0' + d / 10;
         buffer[5] = ('0' + d % 10) | COLON;
@@ -468,7 +470,7 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
       break;
 
     case SHOW_TIMEFULL:
-      buffer[3] = ('0' + min % 10) | COLON;
+      buffer[3] |= COLON;
       buffer[4] = '0' + sec / 10;
       buffer[5] = ('0' + sec % 10) | (sync ? COLON : 0);
       buffer[6] = ' ';
@@ -478,35 +480,31 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 #ifdef ONEWIRE
     case SHOW_TIMETEMP:
       bool negative;
-      int8_t temp;
-      uint8_t tenth;
+      int16_t temp2;
 
-      buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
-
-      // convert the raw temperature of a DS18B20 into whole and fractional value
-      temp = tempRaw >> 4;
-      negative = (tempRaw & 0x8000) != 0; 
-
-      if (negative) tempRaw = (~tempRaw) + 1;
-
-      temp = tempRaw >> 4;
-      tenth = (tempRaw & 0x0F) * 625 / 1000;
+      if (temp < 0) {
+        negative = true;
+        temp2 = -temp;
+      }
+      else {
+        negative = false;
+        temp2 = temp;
+      }
 
       if (negative) {
         buffer[4] = '-';
-        buffer[5] = ('0' + temp) | COLON;
+        buffer[5] = ('0' + temp2 / 100) | COLON;
       }
       else {
-        buffer[4] = '0' + temp / 10;
-        buffer[5] = ('0' + temp % 10) | COLON;
+        buffer[4] = '0' + temp2 / 1000;
+        buffer[5] = ('0' + ((temp2 / 100) % 10)) | COLON;
       }
-      buffer[6] = '0' + tenth;
+      buffer[6] = '0' + (temp2 / 10) % 10;
       buffer[7] = 'C';
       break;
 #endif
 
     case SHOW_LOWBATT:
-      buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
       buffer[4] = ' ';
       buffer[5] = ('0' + (vcc >> 8)) | COLON;
       buffer[6] = '0' + (vcc & 0x0F);
@@ -531,7 +529,10 @@ void readTemp(bool tock) {
   if (tock) {
     if (currentTime - lastTempTime > tempDelay) {
       lastTempTime = currentTime;
-      startConversion();
+#ifdef SERIALDEBUG
+      Serial.println("Starting conversion...");
+#endif
+      ow.startConversion();
       conv = true;
     }
   }
@@ -540,7 +541,7 @@ void readTemp(bool tock) {
 #ifdef SERIALDEBUG
       Serial.println("Reading temperature...");
 #endif
-      tempRaw = readTemperature();
+      temp = ow.readTemperature();
       conv = false;
     }
   }
