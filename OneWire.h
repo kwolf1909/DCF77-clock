@@ -1,9 +1,7 @@
 // OneWire object, includes DS18B20 temperature reading
 
 class OneWire {
-  public:
-    enum class resolution { RES9BIT = 0x1F, RES10BIT = 0x3F, RES11BIT = 0x5F, RES12BIT = 0x7F };
-    
+  public:    
     OneWire(uint8_t);
     void setup();
     uint8_t reset();
@@ -23,6 +21,10 @@ class OneWire {
     const uint8_t ConvertT = 0x44;
     const uint8_t WriteScratchpad = 0x4E;
     const uint8_t ReadScratchpad = 0xBE;
+    const uint8_t res9bit = 0x1F;
+    const uint8_t res10bit = 0x3F;
+    const uint8_t res11bit = 0x5F;
+    const uint8_t res12bit = 0x7F;
     
     void delayMicros(uint16_t);
     inline void pinLow();
@@ -159,14 +161,14 @@ int16_t OneWire::readTemperature() {
   return -100;
 }
 
-bool OneWire::setResolution(uint8_t res) {
-  OneWire::resolution res2;
+bool OneWire::setResolution(uint8_t resolution) {
+  uint8_t res;
   
-  switch(res) {
-    case 12: res2 = resolution::RES12BIT; break;
-    case 11: res2 = resolution::RES11BIT; break;
-    case 10: res2 = resolution::RES10BIT; break;
-    default: res2 = resolution::RES9BIT;  break;
+  switch(resolution) {
+    case 12: res = res12bit; break;
+    case 11: res = res11bit; break;
+    case 10: res = res10bit; break;
+    default: res = res9bit; break;
   }
 
   if (reset() != 0) {
@@ -174,7 +176,7 @@ bool OneWire::setResolution(uint8_t res) {
     write(WriteScratchpad);
     write(0);
     write(100);
-    write((uint8_t)res2);
+    write(res);
     reset();
     return true;
   }
