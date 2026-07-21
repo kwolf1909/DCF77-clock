@@ -16,7 +16,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: June 14th 2026
+//  Date: July 21st 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -211,7 +211,7 @@ uint8_t handleAnimation(uint8_t state) {
 
   uint8_t pos;
   dcf77::dcfState dcfState;
-  static uint8_t syncPos, prevPos;
+  static uint8_t prevPos;
   static dcf77::pulseType pulse, prevPulse;
 
   if (timeState != TIME_SYNC) return SHOWSYNC_IDLE;
@@ -228,35 +228,32 @@ uint8_t handleAnimation(uint8_t state) {
     case SHOWSYNC_IDLE:
       if (dcfState == dcf77::dcfState::MINUTEMARKER) {
         prevPulse = dcf77::pulseType::END;
+        prevPos = 0;
         return SHOWSYNC_MINUTEMARKER;
       }
       break;
 
     case SHOWSYNC_MINUTEMARKER:
 #ifdef SERIALDEBUG
-      if (dcf.checkMinuteMarker()) Serial.println("\r\nMinute marker detected");
+      if (dcf.checkMinuteMarker()) Serial.println("\r\nAnimation: Minute marker detected");
 #endif
-      if (dcfState == dcf77::dcfState::STARTBIT) {
-        syncPos = 0;
-        prevPos = 0;
-        return SHOWSYNC_STARTBIT;
-      }
+      if (dcfState == dcf77::dcfState::STARTBIT) return SHOWSYNC_STARTBIT;
+
       // show receive pulse animation
       pulse = dcf.getLastPulseType();
       if (prevPulse != pulse) {
         prevPulse = pulse;
         if (pulse == dcf77::pulseType::START) showSync(state, true);
         if (pulse == dcf77::pulseType::END) showSync(state, false);
-        if (syncPos > 3) syncPos = 0;
 #ifdef SERIALDEBUG
-        if (pulse == dcf77::pulseType::END) Serial.printf("PulseLen: %u\r\n", dcf.getLastPulseLen());
+        if (pulse == dcf77::pulseType::END) Serial.printf("Animation: PulseLen %u\r\n", dcf.getLastPulseLen());
 #endif
       }
       break;
 
     case SHOWSYNC_STARTBIT:
 #ifdef SERIALDEBUG
-      if (dcf.checkStartBit()) Serial.println("Startbit detected");
+      if (dcf.checkStartBit()) Serial.println("Animation: Startbit detected");
 #endif
       if (dcfState == dcf77::dcfState::RECEIVING) return SHOWSYNC_RECEIVING;
       break;
@@ -276,6 +273,9 @@ uint8_t handleAnimation(uint8_t state) {
       break;
 
     case SHOWSYNC_RECEIVECOMPL:
+#ifdef SERIALDEBUG
+      Serial.println("Animation: Receive complete");
+#endif
       return SHOWSYNC_IDLE;
 
     case SHOWSYNC_NOSIGNAL:
@@ -550,16 +550,14 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 bool readTemp(bool tick) {
 
   static bool conv = false;
-
-  dcf77::dcfState dcfState = dcf.getState();
   
-  if (!sens || dcfState != dcf77::dcfState::IDLE) return false;
+  if (!sens || dcf.getState() != dcf77::dcfState::IDLE) return false;
 
   if (tick) {
     // read temperature
     if (conv) {
 #ifdef SERIALDEBUG
-      Serial.println("Reading temperature...");
+      Serial.println("DS18B20: Reading temperature");
 #endif
       temp = ow.readTemperature();
       conv = false;
@@ -568,7 +566,7 @@ bool readTemp(bool tick) {
     if (currentTime - lastTempTime > tempDelay) {
       lastTempTime = currentTime;
 #ifdef SERIALDEBUG
-      Serial.println("Starting conversion...");
+      Serial.println("DS18B20: Starting conversion");
 #endif
       ow.startConversion();
       conv = true;
