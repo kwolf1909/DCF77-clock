@@ -83,7 +83,8 @@ OneWire ow(ONEWIRE_PIN);
 enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
 enum { RECEIVE_INIT = 1, RECEIVE_IDLE, RECEIVE_RECEIVING, RECEIVE_COMPLETE };
 enum { SHOW_TIMEDATE = 1, SHOW_TIMEFULL, SHOW_TIMETEMP, SHOW_LOWBATT };
-enum { SHOWSYNC_IDLE = 1, SHOWSYNC_MINUTEMARKER, SHOWSYNC_STARTBIT, SHOWSYNC_RECEIVING, SHOWSYNC_NOSIGNAL, SHOWSYNC_WAITSIGNAL };
+enum { SHOWSYNC_INIT = 1, SHOWSYNC_IDLE, SHOWSYNC_MINUTEMARKER, SHOWSYNC_STARTBIT,
+       SHOWSYNC_RECEIVING, SHOWSYNC_RECEIVECOMPL, SHOWSYNC_NOSIGNAL, SHOWSYNC_WAITSIGNAL };
 
 //----------------------------------------------------------------------------------
 
@@ -140,13 +141,23 @@ void setup() {
 #ifdef RTC_AVAIL
   // initialize external RTC
   if (rtc.begin()) {
-    if (rtc.lostPower()) rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0));
+    if (rtc.lostPower()) {
+#ifdef SERIALDEBUG
+      Serial.println("RTC power loss!");
+#endif
+      rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0));
+    }
     else timeState = TIME_RTC;
     
     rtc.enable32K();
     alpha.print("RTC OK  ");
   }
-  else alpha.print("RTC FAIL");
+  else {
+#ifdef SERIALDEBUG
+    Serial.println("RTC failed!");
+#endif
+    alpha.print("RTC FAIL");
+  }
   delay(1500);
 #endif
 
@@ -157,7 +168,7 @@ void setup() {
   dcf.timerSetup();
 
   receiveState = RECEIVE_INIT;
-  syncState = SHOWSYNC_IDLE;
+  syncState = SHOWSYNC_INIT;
   showState = SHOW_TIMEDATE;
   tickTock = false;
   button = false;
@@ -209,28 +220,37 @@ uint8_t handleAnimation(uint8_t state) {
   dcfState = dcf.getState();
   
   switch (state) {
+    case SHOWSYNC_INIT:
+      // wait for first signal
+      showSync(SHOWSYNC_WAITSIGNAL, false);
+      return SHOWSYNC_WAITSIGNAL;
+      
     case SHOWSYNC_IDLE:
-      prevPulse = dcf77::pulseType::END;
-      if (dcf.getPos() == DCF_SIZE) break;
-      if (dcfState == dcf77::dcfState::MINUTEMARKER) return SHOWSYNC_MINUTEMARKER;
+      if (dcfState == dcf77::dcfState::MINUTEMARKER) {
+        prevPulse = dcf77::pulseType::END;
+        return SHOWSYNC_MINUTEMARKER;
+      }
       break;
 
     case SHOWSYNC_MINUTEMARKER:
 #ifdef SERIALDEBUG
       if (dcf.checkMinuteMarker()) Serial.println("\r\nMinute marker detected");
 #endif
-      // show receive pulse animation
-      pulse = dcf.getLastPulseType();
-      if (prevPulse != pulse) {
-        prevPulse = pulse;
-        if (pulse == dcf77::pulseType::START) showSync(state, syncPos, true);
-        if (pulse == dcf77::pulseType::END) showSync(state, syncPos++, false);
-        if (syncPos > 3) syncPos = 0;
-      }
       if (dcfState == dcf77::dcfState::STARTBIT) {
         syncPos = 0;
         prevPos = 0;
         return SHOWSYNC_STARTBIT;
+      }
+      // show receive pulse animation
+      pulse = dcf.getLastPulseType();
+      if (prevPulse != pulse) {
+        prevPulse = pulse;
+        if (pulse == dcf77::pulseType::START) showSync(state, true);
+        if (pulse == dcf77::pulseType::END) showSync(state, false);
+        if (syncPos > 3) syncPos = 0;
+#ifdef SERIALDEBUG
+        if (pulse == dcf77::pulseType::END) Serial.printf("PulseLen: %u\r\n", dcf.getLastPulseLen());
+#endif
       }
       break;
 
@@ -242,24 +262,24 @@ uint8_t handleAnimation(uint8_t state) {
       break;
 
     case SHOWSYNC_RECEIVING:
-      // show counter
+      if (dcf.checkComplete()) return SHOWSYNC_RECEIVECOMPL;
+      if (dcf.checkRestart()) return SHOWSYNC_IDLE;
+      
       pos = dcf.getPos();
-      if (pos && pos != prevPos) {
+      if (pos != prevPos) {
         prevPos = pos;
 #ifdef SERIALDEBUG
         if (dcf.getBit(pos - 1)) Serial.print("1"); else Serial.print("0");
 #endif
-        showSync(state, DCF_SIZE - pos, false);
-      }
-      // show final counter value
-      if (dcfState == dcf77::dcfState::MINUTEMARKER) {
-        if (pos == DCF_SIZE) showSync(state, 0, false);
-        return SHOWSYNC_IDLE;
+        showSync(state, false);
       }
       break;
 
+    case SHOWSYNC_RECEIVECOMPL:
+      return SHOWSYNC_IDLE;
+
     case SHOWSYNC_NOSIGNAL:
-      showSync(state, 0, false);
+      showSync(state, false);
       return SHOWSYNC_WAITSIGNAL;
     
     case SHOWSYNC_WAITSIGNAL:
@@ -407,22 +427,31 @@ uint8_t handleButton(uint8_t state) {
 
 //----------------------------------------------------------------------------------
 
-void showSync(uint8_t showMode, uint8_t pos, bool sync) {
+void showSync(uint8_t mode, bool colon) {
   char buffer[9];
+  static uint8_t pos = 0;
 
-  switch (showMode) {
+  switch (mode) {
+    case SHOWSYNC_WAITSIGNAL:
+      strcpy(buffer, "WAIT    ");
+      pos = 0;
+      break;
+    
     case SHOWSYNC_MINUTEMARKER:
       strcpy(buffer, "SYNC    ");
-      if (pos > 3) return;
-      if (sync) buffer[4 + pos] = ' ' | COLON;
+      if (colon) buffer[4 + pos] |= COLON;
+      if (!colon) pos++;
+      if (pos > 3) pos = 0;
       break;
 
     case SHOWSYNC_RECEIVING:
+    case SHOWSYNC_RECEIVECOMPL:
+      pos = DCF_SIZE - dcf.getPos();
       strcpy(buffer, "RECV    ");
       if (pos >= 10) buffer[6] = '0' + pos / 10;
       buffer[7] = '0' + pos % 10;
       break;
-
+    
     case SHOWSYNC_NOSIGNAL:
       strcpy(buffer, "NOSIGNAL");
   }
@@ -518,15 +547,24 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 //----------------------------------------------------------------------------------
 
 #ifdef ONEWIRE
-void readTemp(bool tock) {
+bool readTemp(bool tick) {
 
   static bool conv = false;
 
   dcf77::dcfState dcfState = dcf.getState();
   
-  if (!sens || dcfState != dcf77::dcfState::IDLE) return;
+  if (!sens || dcfState != dcf77::dcfState::IDLE) return false;
 
-  if (tock) {
+  if (tick) {
+    // read temperature
+    if (conv) {
+#ifdef SERIALDEBUG
+      Serial.println("Reading temperature...");
+#endif
+      temp = ow.readTemperature();
+      conv = false;
+      return true;
+    }
     if (currentTime - lastTempTime > tempDelay) {
       lastTempTime = currentTime;
 #ifdef SERIALDEBUG
@@ -536,15 +574,7 @@ void readTemp(bool tock) {
       conv = true;
     }
   }
-  else {
-    if (conv) {
-#ifdef SERIALDEBUG
-      Serial.println("Reading temperature...");
-#endif
-      temp = ow.readTemperature();
-      conv = false;
-    }
-  }
+  return false;
 }
 #endif
 

@@ -46,9 +46,11 @@ class dcf77 {
     uint8_t getPos();
     bool getBit(uint8_t);
     dcf77::pulseType getLastPulseType();
+    uint16_t getLastPulseLen();
     bool checkComplete();
     bool checkStartBit();
     bool checkMinuteMarker();
+    bool checkRestart();
     void noSignal();
     bool getSignalStatus();
     dcf77::result decode(timeStampDCF77 *);
@@ -56,14 +58,14 @@ class dcf77 {
 
   private:
     uint8_t bitArray[DCF_SIZE], dcfPos, noSignalCnt;
-    uint32_t lastSignalTime;
+    uint16_t lastPulseLen;
     dcf77::dcfState state;
     dcf77::pulseType lastPulseType;
 
     dcf77::result checkParity();
     uint8_t bitScale(uint8_t *, uint8_t);
 
-    volatile bool dcfReq, minuteMarker, startBit, receiveBit, dcfComplete;
+    volatile bool dcfReq, minuteMarker, restartMarker, startBit, receiveBit, dcfComplete;
 };
 
 // constructor
@@ -74,6 +76,7 @@ dcf77::dcf77()
   dcfReq = false;
   dcfComplete = false;
   minuteMarker = false;
+  restartMarker = false;
   startBit = false;
   noSignalCnt = 0;
   lastPulseType = pulseType::NONE;
@@ -122,6 +125,10 @@ dcf77::pulseType dcf77::getLastPulseType(void) {
   return lastPulseType;
 }
 
+uint16_t dcf77::getLastPulseLen(void) {
+  return lastPulseLen;
+}
+
 bool dcf77::checkComplete(void) {
   return dcfComplete;
 }
@@ -138,13 +145,19 @@ bool dcf77::checkMinuteMarker(void) {
   return mm;
 }
 
+bool dcf77::checkRestart(void) {
+  bool rs = restartMarker;
+  restartMarker = false;
+  return rs;
+}
+
 void dcf77::noSignal(void) {
   if (noSignalCnt < NOSIGNAL_COUNTER) noSignalCnt++;
-  
+
   // receive signal error
   if (state == dcfState::RECEIVING) {
     state = dcfState::DETECT;
-    dcfPos = 0;  
+    dcfPos = 0;
   }
   return;
 }
@@ -223,8 +236,9 @@ dcf77::result dcf77::decode(timeStampDCF77 *dcf)
 void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
 {
   lastPulseType = type;
+  lastPulseLen = lenSignal;
   noSignalCnt = 0;
-  
+
   switch (state) {
     case dcfState::IDLE:
       if (dcfReq) {
@@ -291,6 +305,7 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
         if (lenSignal < BIT_0_DURATION_LOW || lenSignal > BIT_1_DURATION_HIGH) {
           // receive signal error
           dcfPos = 0;
+          restartMarker = true;
           state = dcfState::MINUTEMARKER;
         }
         // finally weit for next minute marker to complete
