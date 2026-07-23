@@ -16,7 +16,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: July 21st 2026
+//  Date: July 23 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -31,7 +31,7 @@
 #define RTC_AVAIL
 #define ONEWIRE
 #define BUTTON
-//#define SERIALDEBUG
+#define SERIALDEBUG
 #endif
 #define SEG14
 #include "AlphaDisplay.h"
@@ -210,14 +210,11 @@ void loop() {
 uint8_t handleAnimation(uint8_t state) {
 
   uint8_t pos;
-  dcf77::dcfState dcfState;
   static uint8_t prevPos;
   static dcf77::pulseType pulse, prevPulse;
 
   if (timeState != TIME_SYNC) return SHOWSYNC_IDLE;
   if (dcf.getSignalStatus() == false) state = SHOWSYNC_NOSIGNAL;
-  
-  dcfState = dcf.getState();
   
   switch (state) {
     case SHOWSYNC_INIT:
@@ -226,7 +223,10 @@ uint8_t handleAnimation(uint8_t state) {
       return SHOWSYNC_WAITSIGNAL;
       
     case SHOWSYNC_IDLE:
-      if (dcfState == dcf77::dcfState::MINUTEMARKER) {
+      if (dcf.getRequestState()) {
+#ifdef SERIALDEBUG
+        Serial.println("Animation: Request detected");
+#endif
         prevPulse = dcf77::pulseType::END;
         prevPos = 0;
         return SHOWSYNC_MINUTEMARKER;
@@ -234,11 +234,12 @@ uint8_t handleAnimation(uint8_t state) {
       break;
 
     case SHOWSYNC_MINUTEMARKER:
+      if (dcf.checkMinuteMarker()) {
 #ifdef SERIALDEBUG
-      if (dcf.checkMinuteMarker()) Serial.println("\r\nAnimation: Minute marker detected");
+        Serial.println("\r\nAnimation: Minute marker detected");
 #endif
-      if (dcfState == dcf77::dcfState::STARTBIT) return SHOWSYNC_STARTBIT;
-
+        return SHOWSYNC_STARTBIT;
+      }
       // show receive pulse animation
       pulse = dcf.getLastPulseType();
       if (prevPulse != pulse) {
@@ -252,16 +253,22 @@ uint8_t handleAnimation(uint8_t state) {
       break;
 
     case SHOWSYNC_STARTBIT:
+      if (dcf.checkStartBit()) {
 #ifdef SERIALDEBUG
-      if (dcf.checkStartBit()) Serial.println("Animation: Startbit detected");
+        Serial.println("Animation: Startbit detected");
 #endif
-      if (dcfState == dcf77::dcfState::RECEIVING) return SHOWSYNC_RECEIVING;
+        return SHOWSYNC_RECEIVING;
+      }
       break;
 
     case SHOWSYNC_RECEIVING:
       if (dcf.checkComplete()) return SHOWSYNC_RECEIVECOMPL;
-      if (dcf.checkRestart()) return SHOWSYNC_IDLE;
-      
+      if (dcf.checkRestart()) {
+#ifdef SERIALDEBUG
+        Serial.println("\r\nAnimation: Restart");
+#endif
+        return SHOWSYNC_IDLE;
+      }      
       pos = dcf.getPos();
       if (pos != prevPos) {
         prevPos = pos;
@@ -302,7 +309,7 @@ uint8_t handleReceive(uint8_t state) {
     case RECEIVE_IDLE:
       if (syncReq) {
 #ifdef SERIALDEBUG
-        Serial.println("\r\nSync: Started...");
+        Serial.println("\r\nSync: Started");
 #endif
         dcf.request();
         return RECEIVE_RECEIVING;
@@ -313,7 +320,7 @@ uint8_t handleReceive(uint8_t state) {
     case RECEIVE_RECEIVING:
       if (dcf.checkComplete()) {
 #ifdef SERIALDEBUG
-        Serial.println("\r\nDCF77 receive complete");
+        Serial.println("\r\nDCF77: Receive complete");
 #endif
         return RECEIVE_COMPLETE;
       }
@@ -322,7 +329,7 @@ uint8_t handleReceive(uint8_t state) {
     case RECEIVE_COMPLETE:
       if (dcf.decode(&dcfTime) == dcf77::result::SUCCESS) {
 #ifdef SERIALDEBUG
-        Serial.println("DCF77 decode successful");
+        Serial.println("DCF77: Decode successful");
         //Serial.printf("DCF77-Time: %02u:%02u\r\n", dcfTime.hour, dcfTime.minute);
 #endif
         // update local time
@@ -342,7 +349,7 @@ uint8_t handleReceive(uint8_t state) {
       }
       else {
 #ifdef SERIALDEBUG
-        Serial.println("DCF77 decode failed!");
+        Serial.println("DCF77: Decode failed!");
 #endif
         // trigger new DCF receiving cycle
         dcf.request();

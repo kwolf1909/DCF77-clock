@@ -35,7 +35,7 @@ struct timeStampDCF77
 class dcf77 {
   public:
     enum class result { SUCCESS = 0, INVALID = -1 };
-    enum class dcfState { IDLE = 1, MINUTEMARKER, DETECT, STARTBIT, RECEIVING };
+    enum class dcfState { IDLE = 1, DETECT, STARTBIT, MINUTEMARKER, MINUTEMARKERCOMPL, RECEIVING };
     enum class pulseType { NONE = 0, START = 1, END = 2 };
 
     dcf77();
@@ -262,13 +262,6 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
       if (type == pulseType::START) {
         if (lenSignal >= TIMEOUT_DURATION_LOW && lenSignal <= TIMEOUT_DURATION_HIGH) {
           // minute marker detected
-          if (dcfPos == DCF_SIZE) {
-            // this triggers data processing
-            dcfComplete = true;
-            dcfReq = false;
-            state = dcfState::IDLE;
-            break;
-          }
           minuteMarker = true;
           dcfPos = 0;
           state = dcfState::STARTBIT;
@@ -276,6 +269,21 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
       }
       break;
 
+    case dcfState::MINUTEMARKERCOMPL:
+      if (type == pulseType::START) {
+        if (lenSignal >= TIMEOUT_DURATION_LOW && lenSignal <= TIMEOUT_DURATION_HIGH) {
+          dcfComplete = true;
+          dcfReq = false;
+          state = dcfState::IDLE;
+        }
+        else {
+          dcfPos = 0;
+          restartMarker = true;
+          state = dcfState::MINUTEMARKER;          
+        }
+      }
+      break;
+    
     case dcfState::STARTBIT:
       if (type == pulseType::END) {
         if (lenSignal >= BIT_0_DURATION_LOW && lenSignal <= BIT_0_DURATION_HIGH) {
@@ -309,7 +317,7 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
           state = dcfState::MINUTEMARKER;
         }
         // finally weit for next minute marker to complete
-        if (++dcfPos == DCF_SIZE) state = dcfState::MINUTEMARKER;
+        if (++dcfPos == DCF_SIZE) state = dcfState::MINUTEMARKERCOMPL;
       }
       break;
   }
