@@ -16,13 +16,14 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: July 23 2026
+//  Date: Sep 01 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
 #include <TinyI2CMaster.h>
 #include "DateTime.h"
 #define TINYWIRE
+#define VOLTAGE
 #endif
 #if defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
 #include <Wire.h>
@@ -31,9 +32,10 @@
 #define RTC_AVAIL
 #define ONEWIRE
 #define BUTTON
+#define VOLTAGE
+#define SEG14
 #define SERIALDEBUG
 #endif
-#define SEG14
 #include "AlphaDisplay.h"
 #include "dcf77.h"
 
@@ -41,7 +43,7 @@
 
 #define DISPLAY_ADDRESS         0x70
 #define DISPLAY_DIGITS          8
-#define DISPLAY_BRIGHTNESS      4
+#define DISPLAY_BRIGHTNESS      15
 
 #define ONEWIRE_PIN             4
 #define ONEWIRE_RESOLUTION      11
@@ -162,8 +164,9 @@ void setup() {
 #endif
 
   RTCinit();
+#ifdef VOLTAGE
   ADCinit();
-
+#endif
   // setup timer TCA0 for DCF signal processing
   dcf.timerSetup();
 
@@ -368,10 +371,11 @@ uint8_t handleTime(uint8_t state) {
   if (tickTock != prevTock) {
     prevTock = tickTock;
 
+#ifdef VOLTAGE
     // show voltage if low (< 3V)
     vcc = measureVoltage();
     if ((vcc >> 8) < 3) showState = SHOW_LOWBATT;
-
+#endif
     // read temperature
 #ifdef ONEWIRE
     readTemp(tickTock);
@@ -540,13 +544,16 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
       break;
 #endif
 
+#ifdef VOLTAGE
     case SHOW_LOWBATT:
       buffer[4] = ' ';
       buffer[5] = ('0' + (vcc >> 8)) | COLON;
       buffer[6] = '0' + (vcc & 0x0F);
       buffer[7] = 'V';
       break;
+#endif
   }
+
   buffer[8] = 0;
   alpha.print(buffer);
 }
@@ -616,6 +623,7 @@ void RTCinit(void) {
   RTC.PITINTCTRL = RTC_PI_bm;
 }
 
+#ifdef VOLTAGE
 void ADCinit(void) {
   VREF.CTRLA = VREF_ADC0REFSEL_1V1_gc;
   ADC0.CTRLC = ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV256_gc;
@@ -630,6 +638,7 @@ uint16_t measureVoltage(void) {
   uint16_t voltage = 11264 / adc_reading;
   return (voltage / 10) << 8 | (voltage % 10);
 }
+#endif
 
 //---------------------------------------- ISR ---------------------------------------
 
