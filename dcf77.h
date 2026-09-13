@@ -57,6 +57,7 @@ class dcf77 {
     void handleInt(dcf77::pulseType, uint16_t);
 
   private:
+    bool signalStatus;
     uint8_t bitArray[DCF_SIZE], dcfPos, noSignalCnt;
     uint16_t lastPulseLen;
     dcf77::dcfState state;
@@ -78,6 +79,7 @@ dcf77::dcf77()
   minuteMarker = false;
   restartMarker = false;
   startBit = false;
+  signalStatus = false;
   noSignalCnt = 0;
   lastPulseType = pulseType::NONE;
 }
@@ -99,7 +101,9 @@ void dcf77::request(void) {
   dcfPos = 0;
   dcfReq = true;
   dcfComplete = false;
-  noSignalCnt = 0;
+  minuteMarker = false;
+  startBit = false;
+  restartMarker = false;
 
   // clear receive data buffer
   for (uint8_t i = 0; i < DCF_SIZE; i++) bitArray[i] = 0;
@@ -152,19 +156,20 @@ bool dcf77::checkRestart(void) {
 }
 
 void dcf77::noSignal(void) {
-  if (noSignalCnt < NOSIGNAL_COUNTER) noSignalCnt++;
-
-  // receive signal error
-  if (state == dcfState::RECEIVING) {
-    state = dcfState::DETECT;
-    dcfPos = 0;
+  if (noSignalCnt++ >= NOSIGNAL_COUNTER) {
+    noSignalCnt = 0;
+    signalStatus = false;
+    // no signal error
+    if (state == dcfState::RECEIVING) {
+      state = dcfState::DETECT;
+      dcfPos = 0;
+    }
   }
   return;
 }
 
 bool dcf77::getSignalStatus(void) {
-  if (noSignalCnt >= NOSIGNAL_COUNTER) return false;
-  return true;
+  return signalStatus;
 }
 
 uint8_t dcf77::bitScale(uint8_t *bitstring, uint8_t len)
@@ -237,7 +242,6 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
 {
   lastPulseType = type;
   lastPulseLen = lenSignal;
-  noSignalCnt = 0;
 
   switch (state) {
     case dcfState::IDLE:
@@ -253,6 +257,8 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
         if ((lenSignal >= BIT_0_DURATION_LOW && lenSignal <= BIT_0_DURATION_HIGH) ||
             (lenSignal >= BIT_1_DURATION_LOW && lenSignal <= BIT_1_DURATION_HIGH)) {
           // first valid pulse detected
+          noSignalCnt = 0;
+          signalStatus = true;
           state = dcfState::MINUTEMARKER;
         }
       }
@@ -263,6 +269,8 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
         if (lenSignal >= TIMEOUT_DURATION_LOW && lenSignal <= TIMEOUT_DURATION_HIGH) {
           // minute marker detected
           minuteMarker = true;
+          signalStatus = true;
+          noSignalCnt = 0;
           dcfPos = 0;
           state = dcfState::STARTBIT;
         }
@@ -274,6 +282,8 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
         if (lenSignal >= TIMEOUT_DURATION_LOW && lenSignal <= TIMEOUT_DURATION_HIGH) {
           dcfComplete = true;
           dcfReq = false;
+          noSignalCnt = 0;
+          signalStatus = true;
           state = dcfState::IDLE;
         }
         else {
@@ -289,6 +299,8 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
         if (lenSignal >= BIT_0_DURATION_LOW && lenSignal <= BIT_0_DURATION_HIGH) {
           bitArray[0] = 0;
           startBit = true;
+          signalStatus = true;
+          noSignalCnt = 0;
           dcfPos = 1;
           state = dcfState::RECEIVING;
         }
@@ -304,10 +316,14 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
       if (type == pulseType::END) {
         if (lenSignal >= BIT_0_DURATION_LOW && lenSignal <= BIT_0_DURATION_HIGH) {
           bitArray[dcfPos] = 0;
+          noSignalCnt = 0;
+          signalStatus = true;
           receiveBit = true;
         }
         if (lenSignal >= BIT_1_DURATION_LOW && lenSignal <= BIT_1_DURATION_HIGH) {
           bitArray[dcfPos] = 1;
+          noSignalCnt = 0;
+          signalStatus = true;
           receiveBit = true;
         }
         if (lenSignal < BIT_0_DURATION_LOW || lenSignal > BIT_1_DURATION_HIGH) {
