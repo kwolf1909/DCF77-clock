@@ -6,13 +6,15 @@ Without external RTC, serial debugging and OneWire, an ATtiny 412 can be
 used (99 % of flash space used).
 The circuit can be powered by a LiPo-cell. If the voltage drops below 3.0 V,
 the voltage is displayed as a low voltage indicator.
-A push button switches between different display modes:
-Time with date, time with seconds, time with temperature, time with battery voltage.
 A sync to DCF-time is performed in the background every 30 minutes, and immediately
 after power-up.
 The software uses a layer-based approach. Low-level: DCF-object with interrupt handler,
 mid-level: receiving data state machine, upper level: display handling and user interface,
 No blocking code exists, fully asynchronous operation.
+
+Push-button based interface<br>
+Short-press: select display modes: time with date, time with seconds, time with temperature, time with battery voltage.<br>
+Long-press: manually invoke DCF77-resync<br>
 
 MCU-clock: 8 MHz,
 Timers used: TCA0 (DCF pulse width measurement),
