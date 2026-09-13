@@ -16,6 +16,10 @@
 
 #define DCF_SIZE          59
 #define NOSIGNAL_COUNTER  10
+#define LED
+
+const uint8_t pinDcf = PIN3_bm;
+const uint8_t pinLed = PIN6_bm;
 
 struct timeStampDCF77
 {
@@ -39,6 +43,7 @@ class dcf77 {
     enum class pulseType { NONE = 0, START = 1, END = 2 };
 
     dcf77();
+    void begin();
     void timerSetup();
     void request();
     bool getRequestState();
@@ -54,7 +59,7 @@ class dcf77 {
     void noSignal();
     bool getSignalStatus();
     dcf77::result decode(timeStampDCF77 *);
-    void handleInt(dcf77::pulseType, uint16_t);
+    void handleInt(dcf77::pulseType);
 
   private:
     bool signalStatus;
@@ -70,8 +75,7 @@ class dcf77 {
 };
 
 // constructor
-dcf77::dcf77()
-{
+dcf77::dcf77() {
   state = dcfState::IDLE;
   dcfPos = 0;
   dcfReq = false;
@@ -84,8 +88,21 @@ dcf77::dcf77()
   lastPulseType = pulseType::NONE;
 }
 
-void dcf77::timerSetup(void)
-{
+void dcf77::begin() {
+  // DCF signal input with pullup
+  PORTA.DIRCLR = pinDcf;
+  PORTA.PIN3CTRL = PORT_PULLUPEN_bm;
+  PORTA.PIN3CTRL |= PORT_ISC_BOTHEDGES_gc;
+
+#ifdef LED
+  PORTA.DIRSET = pinLed;
+  PORTA.OUTSET = pinLed;
+#endif
+
+  timerSetup();
+}
+
+void dcf77::timerSetup(void) {
   cli();
   TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc;
   TCA0.SINGLE.CTRLD = 0;
@@ -172,8 +189,7 @@ bool dcf77::getSignalStatus(void) {
   return signalStatus;
 }
 
-uint8_t dcf77::bitScale(uint8_t *bitstring, uint8_t len)
-{
+uint8_t dcf77::bitScale(uint8_t *bitstring, uint8_t len) {
   static const uint8_t weights[] = {1, 2, 4, 8, 10, 20, 40, 80};
   static const uint8_t weights_len = 8;
   uint8_t value = 0;
@@ -183,8 +199,7 @@ uint8_t dcf77::bitScale(uint8_t *bitstring, uint8_t len)
   return value;
 }
 
-dcf77::result dcf77::checkParity(void)
-{
+dcf77::result dcf77::checkParity(void) {
   //DCF77 uses even parity
   uint8_t minuteParity = 0;
   uint8_t hourParity = 0;
@@ -207,8 +222,7 @@ dcf77::result dcf77::checkParity(void)
 }
 
 // Extracts and interprets the date and time from the binary DCF77 string and writes them into a timeStampDCF77 structure.
-dcf77::result dcf77::decode(timeStampDCF77 *dcf)
-{
+dcf77::result dcf77::decode(timeStampDCF77 *dcf) {
   // Decode the bit strings according to the DCF77 specification
   dcf->hour = bitScale(bitArray + 29, 6);
   dcf->minute = bitScale(bitArray + 21, 7);
@@ -238,10 +252,21 @@ dcf77::result dcf77::decode(timeStampDCF77 *dcf)
   return result::SUCCESS;
 }
 
-void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
-{
-  lastPulseType = type;
-  lastPulseLen = lenSignal;
+// interrupt handler / signal processing
+void dcf77::handleInt(dcf77::pulseType type) {
+  uint16_t lengthSignal = TCA0.SINGLE.CNT;
+  TCA0.SINGLE.CNT = 0;
+
+  // filter noise
+  if (lengthSignal < BIT_0_MIN_DURATION) return;
+
+#ifdef LED
+  if (type == pulseType::END)  
+    PORTA.OUTCLR = pinLed;
+  else {
+    if (getRequestState()) PORTA.OUTSET = pinLed;
+  }
+#endif
 
   switch (state) {
     case dcfState::IDLE:
@@ -254,8 +279,8 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
     case dcfState::DETECT:
       // wait for first valid pulse
       if (type == pulseType::END) {
-        if ((lenSignal >= BIT_0_DURATION_LOW && lenSignal <= BIT_0_DURATION_HIGH) ||
-            (lenSignal >= BIT_1_DURATION_LOW && lenSignal <= BIT_1_DURATION_HIGH)) {
+        if ((lengthSignal >= BIT_0_DURATION_LOW && lengthSignal <= BIT_0_DURATION_HIGH) ||
+            (lengthSignal >= BIT_1_DURATION_LOW && lengthSignal <= BIT_1_DURATION_HIGH)) {
           // first valid pulse detected
           noSignalCnt = 0;
           signalStatus = true;
@@ -266,7 +291,7 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
 
     case dcfState::MINUTEMARKER:
       if (type == pulseType::START) {
-        if (lenSignal >= TIMEOUT_DURATION_LOW && lenSignal <= TIMEOUT_DURATION_HIGH) {
+        if (lengthSignal >= TIMEOUT_DURATION_LOW && lengthSignal <= TIMEOUT_DURATION_HIGH) {
           // minute marker detected
           minuteMarker = true;
           signalStatus = true;
@@ -279,7 +304,7 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
 
     case dcfState::MINUTEMARKERCOMPL:
       if (type == pulseType::START) {
-        if (lenSignal >= TIMEOUT_DURATION_LOW && lenSignal <= TIMEOUT_DURATION_HIGH) {
+        if (lengthSignal >= TIMEOUT_DURATION_LOW && lengthSignal <= TIMEOUT_DURATION_HIGH) {
           dcfComplete = true;
           dcfReq = false;
           noSignalCnt = 0;
@@ -296,7 +321,7 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
     
     case dcfState::STARTBIT:
       if (type == pulseType::END) {
-        if (lenSignal >= BIT_0_DURATION_LOW && lenSignal <= BIT_0_DURATION_HIGH) {
+        if (lengthSignal >= BIT_0_DURATION_LOW && lengthSignal <= BIT_0_DURATION_HIGH) {
           bitArray[0] = 0;
           startBit = true;
           signalStatus = true;
@@ -304,7 +329,7 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
           dcfPos = 1;
           state = dcfState::RECEIVING;
         }
-        if (lenSignal < BIT_0_DURATION_LOW || lenSignal > BIT_1_DURATION_HIGH) {
+        if (lengthSignal < BIT_0_DURATION_LOW || lengthSignal > BIT_1_DURATION_HIGH) {
           // receive signal error
           dcfPos = 0;
           state = dcfState::MINUTEMARKER;
@@ -314,19 +339,19 @@ void dcf77::handleInt(dcf77::pulseType type, uint16_t lenSignal)
 
     case dcfState::RECEIVING:
       if (type == pulseType::END) {
-        if (lenSignal >= BIT_0_DURATION_LOW && lenSignal <= BIT_0_DURATION_HIGH) {
+        if (lengthSignal >= BIT_0_DURATION_LOW && lengthSignal <= BIT_0_DURATION_HIGH) {
           bitArray[dcfPos] = 0;
           noSignalCnt = 0;
           signalStatus = true;
           receiveBit = true;
         }
-        if (lenSignal >= BIT_1_DURATION_LOW && lenSignal <= BIT_1_DURATION_HIGH) {
+        if (lengthSignal >= BIT_1_DURATION_LOW && lengthSignal <= BIT_1_DURATION_HIGH) {
           bitArray[dcfPos] = 1;
           noSignalCnt = 0;
           signalStatus = true;
           receiveBit = true;
         }
-        if (lenSignal < BIT_0_DURATION_LOW || lenSignal > BIT_1_DURATION_HIGH) {
+        if (lengthSignal < BIT_0_DURATION_LOW || lengthSignal > BIT_1_DURATION_HIGH) {
           // receive signal error
           dcfPos = 0;
           restartMarker = true;

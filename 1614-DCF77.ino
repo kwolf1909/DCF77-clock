@@ -16,7 +16,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Sep 12 2026
+//  Date: Sep 13 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -41,8 +41,6 @@
 #include "AlphaDisplay.h"
 #include "dcf77.h"
 
-#define LED
-
 #define DISPLAY_ADDRESS         0x70
 #define DISPLAY_DIGITS          8
 #define DISPLAY_BRIGHTNESS      4
@@ -54,10 +52,6 @@
 #ifdef MILLIS_USE_TIMERA0
 #error "This sketch takes over TCA0 - please use a different timer for millis"
 #endif
-
-const uint8_t pinDcf = PIN3_bm;
-const uint8_t pinLed = PIN6_bm;
-const uint8_t pinButton = PIN7_bm;
 
 const uint32_t syncDelay = 30 * 60 * 1000L;
 const uint32_t tempDelay = 20 * 1000L;
@@ -103,16 +97,6 @@ void setup() {
   Serial.swap(1);         // use PA1(TX) and PA2 (RX)
   Serial.begin(115200);
   Serial.println("\r\nInit...");
-#endif
-
-  // DCF signal input with pullup
-  PORTA.DIRCLR = pinDcf;
-  PORTA.PIN3CTRL = PORT_PULLUPEN_bm;
-  PORTA.PIN3CTRL |= PORT_ISC_BOTHEDGES_gc;
-
-#ifdef LED
-  PORTA.DIRSET = pinLed;
-  PORTA.OUTSET = pinLed;
 #endif
 
 #ifdef BUTTON
@@ -171,8 +155,8 @@ void setup() {
 #ifdef VOLTAGE
   ADCinit();
 #endif
-  // setup timer TCA0 for DCF signal processing
-  dcf.timerSetup();
+  // start DCF signal processing
+  dcf.begin();
 
   receiveState = RECEIVE_INIT;
   syncState = SHOWSYNC_INIT;
@@ -185,11 +169,6 @@ void setup() {
   lastTempTime = millis() - tempDelay;
 
   alpha.print("--------");
-  
-  // setup finished
-#ifdef LED
-  PORTA.OUTCLR = pinLed;
-#endif
 }
 
 //----------------------------------------------------------------------------------
@@ -673,43 +652,16 @@ uint16_t measureVoltage(void) {
 
 ISR(PORTA_PORT_vect) {
 
-  uint16_t lengthSignal;
-
   // detect DCF77 signal
   if (PORTA.INTFLAGS & pinDcf) {
     PORTA.INTFLAGS = pinDcf;
-
-    // filter noise
-    if (TCA0.SINGLE.CNT < BIT_0_MIN_DURATION) {
-      TCA0.SINGLE.CNT = 0;
-      return;
-    }
-
-    if (PORTA.IN & pinDcf) {
-      // edge low to high
-#ifdef LED
-      PORTA.OUTCLR = pinLed;
-#endif
-      lengthSignal = TCA0.SINGLE.CNT;
-      TCA0.SINGLE.CNT = 0;
-      dcf.handleInt(dcf77::pulseType::END, lengthSignal);
-    } else {
-      // edge high to low
-#ifdef LED
-      //PORTA.OUTSET = pinLed;
-      if (dcf.getRequestState()) PORTA.OUTSET = pinLed;
-#endif
-      lengthSignal = TCA0.SINGLE.CNT;
-      TCA0.SINGLE.CNT = 0;
-      dcf.handleInt(dcf77::pulseType::START, lengthSignal);
-    }
+    dcf.handleInt((PORTA.IN & pinDcf) ? dcf77::pulseType::END : dcf77::pulseType::START);
   }
 }
 
 ISR(TCA0_CMP0_vect) {
   TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm;
   TCA0.SINGLE.CNT = 0;
-
   dcf.noSignal();
 
   //PORTA.OUTTGL = pinLed;
@@ -718,7 +670,6 @@ ISR(TCA0_CMP0_vect) {
 // the RTC interrupt is called twice a seconds
 ISR(RTC_PIT_vect) {
   RTC.PITINTFLAGS = RTC_PI_bm;
-
   tickTock = !tickTock;
   if (tickTock) dt = dt + 1;
 
