@@ -13,12 +13,11 @@ mid-level: receiving data state machine, upper level: display handling and user 
 No blocking code exists, fully asynchronous operation.
 
 Push-button based interface<br>
-Short-press: select display modes: time with date, time with seconds, time with temperature, time with battery voltage.<br>
+Short-press: select display modes: time with date | time with seconds | time with temperature | time with battery voltage.<br>
 Long-press: manually invoke DCF77-resync<br>
 
 MCU-clock: 8 MHz,
-Timers used: TCA0 (DCF pulse width measurement),
-             TCD0 (millis), RTC (2 Hz generation via interrupt)
+Timers used: TCA0 (DCF pulse width measurement), TCD0 (millis), RTC (2 Hz periodic interrupt)
              
 External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
 8-digit display (I2C): DFRobot 7-segment, or custom built 14-segment.
@@ -34,8 +33,7 @@ PB0 - I2C CLK for display<br>
 PB1 - I2C DATA for display<br>
 
 Compiles with MegaTinyCore on Arduino IDE.
-External libraries required:<br>
-RTClib.h (Adafruit fork), OneWireNG, DS18B20_int
+External libraries required: RTClib (Adafruit fork), OneWireNG, DS18B20_int
 
 Custom built alphanumeric display used: http://www.technoblogy.com/show?2ULE
 
