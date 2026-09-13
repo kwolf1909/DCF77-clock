@@ -15,7 +15,7 @@ mid-level: receiving data state machine, upper level: display handling and user 
 No blocking code exists, fully asynchronous operation.
 
 MCU-clock: 8 MHz,
-Timers used: TCA0 (DCF signal processing),
+Timers used: TCA0 (DCF pulse width measurement),
              TCD0 (millis), RTC (2 Hz generation via interrupt)
              
 External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
