@@ -11,11 +11,11 @@ Time with date, time with seconds, time with temperature, time with battery volt
 A sync to DCF-time is performed in the background every 30 minutes, and immediately
 after power-up.
 The software uses a layer-based approach. Low-level: DCF-object with interrupt handler,
-mid-level: receiving data state machine, upper level: display handling. No blocking
-code exists, fully asynchronous operation.
+mid-level: receiving data state machine, upper level: display handling and user interface,
+No blocking code exists, fully asynchronous operation.
 
 MCU-clock: 8 MHz,
-Timers used: TCA0 (DCF signal processing), TCB0 (timing for OneWire),
+Timers used: TCA0 (DCF signal processing),
              TCD0 (millis), RTC (2 Hz generation via interrupt)
              
 External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
@@ -33,7 +33,8 @@ PB0 - I2C CLK for display<br>
 PB1 - I2C DATA for display<br>
 
 Compiles with MegaTinyCore on Arduino IDE.
-External libraries required: RTClib.h (Adafruit fork)
+External libraries required:<br>
+RTClib.h (Adafruit fork), OneWireNG, DS18B20_int
 
 Custom built alphanumeric display used: http://www.technoblogy.com/show?2ULE
 
