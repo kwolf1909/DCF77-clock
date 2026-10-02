@@ -33,7 +33,7 @@ PB0 - I2C CLK for display<br>
 PB1 - I2C DATA for display<br>
 
 Compiles with MegaTinyCore on Arduino IDE.
-External libraries required: RTClib (Adafruit fork), OneWireNG, DS18B20_int
+External libraries required: RTClib (Adafruit fork), OneWireNG, DS18B20_INT
 
 Custom built alphanumeric display used: http://www.technoblogy.com/show?2ULE
 
