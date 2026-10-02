@@ -25,7 +25,7 @@ External DCF77-receiver: ELV DCF-2 (MAS6180 AM-receiver)
 Temperature-sensor: DS18B20 with external pullup
 
 Pins used:<br>
-PA3 - Input, DCF-signal, input-pullup enabled, low-active signal<br>
+PA3 - Input, DCF-signal, input-pullup enabled, active-low signal<br>
 PA4 - Input/Output, used by OneWireNG with temp sensor DS18B20, external pullup 4,7K<br>
 PA6 - Output, LED which reflects the DCF-input signal<br>
 PA7 - Input, mode select button, active low with input-pullup enabled<br>
