@@ -14,7 +14,7 @@ No blocking code exists, fully asynchronous operation.
 
 Push-button based interface<br>
 Short-press: select display modes: time with date | time with seconds | time with temperature | time with battery voltage.<br>
-Long-press: manually invoke DCF77-resync<br>
+Long-press: manually invoke DCF77-resync.<br>
 
 MCU-clock: 8 MHz,
 Timers used: TCA0 (DCF pulse width measurement), TCD0 (millis), RTC (2 Hz periodic interrupt)
@@ -22,7 +22,7 @@ Timers used: TCA0 (DCF pulse width measurement), TCD0 (millis), RTC (2 Hz period
 External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
 8-digit display (I2C): DFRobot 7-segment, or custom built 14-segment.
 External DCF77-receiver: ELV DCF-2 (MAS6180 AM-receiver).
-Temperature-sensor: DS18B20 with external pullup
+Temperature-sensor: DS18B20 with external pullup.
 
 Pins used:<br>
 PA3 - Input, DCF-signal, input-pullup enabled, active-low signal<br>
