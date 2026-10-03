@@ -21,7 +21,7 @@ Timers used: TCA0 (DCF pulse width measurement), TCD0 (millis), RTC (2 Hz period
              
 External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
 8-digit display (I2C): DFRobot 7-segment, or custom built 14-segment.
-External DCF77-receiver: ELV DCF-2 (MAS6180 AM-receiver)
+External DCF77-receiver: ELV DCF-2 (MAS6180 AM-receiver).
 Temperature-sensor: DS18B20 with external pullup
 
 Pins used:<br>
