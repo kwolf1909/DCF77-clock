@@ -16,7 +16,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Sep 13 2026
+//  Date: Oct 03 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -39,7 +39,7 @@
 //#define SERIALDEBUG
 #endif
 #include "AlphaDisplay.h"
-#include "dcf77.h"
+#include "DCF77.h"
 
 #define DISPLAY_ADDRESS         0x70
 #define DISPLAY_DIGITS          8
@@ -55,7 +55,7 @@
 
 const uint32_t syncDelay = 30 * 60 * 1000L;
 const uint32_t tempDelay = 20 * 1000L;
-const uint32_t buttonDelay = 500L;
+const uint32_t buttonDelay = 250L;
 
 bool      syncReq, syncComplete, sens, buttonPressed, buttonLongPressed;
 uint8_t   timeState, showState, receiveState, syncState;
@@ -440,15 +440,15 @@ uint8_t handleButton(uint8_t state) {
 
 //----------------------------------------------------------------------------------
 
-void showSync(uint8_t mode, bool colon) {
-  char buffer[9];
+void showSync(uint8_t mode, bool dot) {
+  char buffer[DISPLAY_DIGITS + 1];
   static uint8_t pos = 0;
 
   switch (mode) {
     case SHOWSYNC_MINUTEMARKER:
       strcpy(buffer, "SYNC    ");
-      if (colon) buffer[4 + pos] |= COLON;
-      if (!colon) pos++;
+      if (dot) buffer[4 + pos] |= DOT;
+      if (!dot) pos++;
       if (pos > 3) pos = 0;
       break;
 
@@ -474,47 +474,47 @@ void showSync(uint8_t mode, bool colon) {
 
 //----------------------------------------------------------------------------------
 
-void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uint8_t d, bool colon, bool sync) {
-  char buffer[9];
+void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uint8_t d, bool dot, bool sync) {
+  char buffer[DISPLAY_DIGITS + 1];
   
   // show time
   buffer[0] = hr >= 10 ? ('0' + hr / 10) : ' ';
-  buffer[1] = ('0' + hr % 10) | (colon ? COLON : 0);
+  buffer[1] = ('0' + hr % 10) | (dot ? DOT : 0);
   buffer[2] = '0' + min / 10;
-  buffer[3] = ('0' + min % 10) | (sync ? COLON : 0);
+  buffer[3] = ('0' + min % 10) | (sync ? DOT : 0);
   
   switch (mode) {
     case SHOW_TIMEDATE:
       if (d >= 10 && m >= 10) {
         buffer[4] = '0' + d / 10;
-        buffer[5] = ('0' + d % 10) | COLON;
+        buffer[5] = ('0' + d % 10) | DOT;
         buffer[6] = '0' + m / 10;
-        buffer[7] = ('0' + m % 10) | COLON;
+        buffer[7] = ('0' + m % 10) | DOT;
       }
       if (d >= 10 && m < 10) {
         buffer[4] = ' ';
         buffer[5] = '0' + d / 10;
-        buffer[6] = ('0' + d % 10) | COLON;
-        buffer[7] = ('0' + m) | COLON;
+        buffer[6] = ('0' + d % 10) | DOT;
+        buffer[7] = ('0' + m) | DOT;
       }
       if (d < 10 && m >= 10) {
         buffer[4] = ' ';
-        buffer[5] = ('0' + d) | COLON;
+        buffer[5] = ('0' + d) | DOT;
         buffer[6] = '0' + m / 10;
-        buffer[7] = ('0' + m % 10) | COLON;
+        buffer[7] = ('0' + m % 10) | DOT;
       }
       if (d < 10 && m < 10) {
         buffer[4] = ' ';
         buffer[5] = ' ';
-        buffer[6] = ('0' + d) | COLON;
-        buffer[7] = ('0' + m) | COLON;
+        buffer[6] = ('0' + d) | DOT;
+        buffer[7] = ('0' + m) | DOT;
       }
       break;
 
     case SHOW_TIMEFULL:
-      buffer[3] |= COLON;
+      buffer[3] |= DOT;
       buffer[4] = '0' + sec / 10;
-      buffer[5] = ('0' + sec % 10) | (sync ? COLON : 0);
+      buffer[5] = ('0' + sec % 10) | (sync ? DOT : 0);
       buffer[6] = ' ';
       buffer[7] = ' ';
       break;
@@ -535,11 +535,11 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 
       if (negative) {
         buffer[4] = '-';
-        buffer[5] = ('0' + temp2 / 100) | COLON;
+        buffer[5] = ('0' + temp2 / 100) | DOT;
       }
       else {
         buffer[4] = '0' + temp2 / 1000;
-        buffer[5] = ('0' + ((temp2 / 100) % 10)) | COLON;
+        buffer[5] = ('0' + ((temp2 / 100) % 10)) | DOT;
       }
       buffer[6] = '0' + (temp2 / 10) % 10;
       buffer[7] = 'C';
@@ -549,13 +549,12 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 #ifdef VOLTAGE
     case SHOW_LOWBATT:
       buffer[4] = ' ';
-      buffer[5] = ('0' + (vcc / 1000)) | COLON;
+      buffer[5] = ('0' + (vcc / 1000)) | DOT;
       buffer[6] = '0' + ((vcc / 100) % 10);
       buffer[7] = 'V';
       break;
 #endif
   }
-
   buffer[8] = 0;
   alpha.print(buffer);
 }
@@ -639,39 +638,34 @@ uint16_t measureVoltage(void) {
   ADC0.COMMAND = ADC_STCONV_bm;
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
   
-  uint16_t accumulated_val = ADC0.RES;
+  uint16_t accumulatedVal = ADC0.RES;
   ADC0.INTFLAGS = ADC_RESRDY_bm;
-  if (accumulated_val == 0) return 0;
+  if (accumulatedVal == 0) return 0;
   
-  uint16_t vcc_mv = (uint16_t)(72019200UL / accumulated_val);
-  return vcc_mv;
+  return (uint16_t)(72019200UL / accumulatedVal);
 }
 #endif
 
 //---------------------------------------- ISR ---------------------------------------
 
+// DCF77 interrupt handler, is called on every pulse edge
 ISR(PORTA_PORT_vect) {
-
-  // detect DCF77 signal
   if (PORTA.INTFLAGS & pinDcf) {
     PORTA.INTFLAGS = pinDcf;
     dcf.handleInt((PORTA.IN & pinDcf) ? dcf77::pulseType::END : dcf77::pulseType::START);
   }
 }
 
+// on timer compare match, no DCF-signal is received, increase no-signal counter
 ISR(TCA0_CMP0_vect) {
   TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm;
   TCA0.SINGLE.CNT = 0;
   dcf.noSignal();
-
-  //PORTA.OUTTGL = pinLed;
 }
 
-// the RTC interrupt is called twice a seconds
+// the RTC interrupt is called twice a seconds, increases internal time every second
 ISR(RTC_PIT_vect) {
   RTC.PITINTFLAGS = RTC_PI_bm;
   tickTock = !tickTock;
   if (tickTock) dt = dt + 1;
-
-  //PORTA.OUTTGL = pinLed;
 }

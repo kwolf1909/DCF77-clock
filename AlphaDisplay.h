@@ -1,20 +1,22 @@
 // AlphaDisplay object - controls 7- or 14-segment display
 
-#define HT16K33_BLINK_CMD       0x80
-#define HT16K33_BLINK_DISPLAYON 0x01
-#define HT16K33_BLINK_OFF       0
-#define HT16K33_BLINK_2HZ       1
-#define HT16K33_BLINK_1HZ       2
-#define HT16K33_BLINK_HALFHZ    3
+#define HT16K33_SYSCMD    0x20
+#define HT16K33_BLINKCMD  0x80
+#define HT16K33_BRIGHTCMD 0xE0
+#define HT16K33_ON        0x01
+#define HT16K33_OFF       0x00
+#define HT16K33_1HZ       0x02
+#define HT16K33_2HZ       0x04
+#define HT16K33_HALFHZ    0x06
 
-#define LINE_RIGHTUP    0x02
-#define LINE_RIGHTDOWN  0x04
-#define LINE_TOP        0x01
-#define LINE_BOTTOM     0x08
-#define LINE_LEFTUP     0x20
-#define LINE_LEFTDOWN   0x10
-#define LINE_MIDDLE     0x40
-#define COLON           0x80
+#define SEG_RIGHTUP       0x02
+#define SEG_RIGHTDOWN     0x04
+#define SEG_TOP           0x01
+#define SEG_BOTTOM        0x08
+#define SEG_LEFTUP        0x20
+#define SEG_LEFTDOWN      0x10
+#define SEG_MIDDLE        0x40
+#define DOT               0x80
 
 class AlphaDisplay {
   public:
@@ -56,14 +58,14 @@ void AlphaDisplay::init(uint8_t addr, uint8_t digits, uint8_t brightness) {
   numDigits = digits;
 
   wireBegin(address);
-  wireWrite(0x21);                // Normal operation mode
+  wireWrite(HT16K33_SYSCMD | HT16K33_ON);     // normal operation mode
   wireEnd();
   wireBegin(address);
-  wireWrite(0xE0 + brightness);   // Set brightness
+  wireWrite(HT16K33_BRIGHTCMD + brightness);  // set brightness
   wireEnd();
   clear();
   wireBegin(address);
-  wireWrite(0x81);                // Display on
+  wireWrite(HT16K33_BLINKCMD | HT16K33_ON);   // display on
   wireEnd();
 }
 

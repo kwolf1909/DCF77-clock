@@ -1,10 +1,7 @@
 // DateTime and TimeSpan objects - extract of RTClib
 
-class TimeSpan;
-
-/** Constants */
-#define SECONDS_PER_DAY 86400L ///< 60 * 60 * 24
-#define SECONDS_FROM_1970_TO_2000 946684800 ///< Unixtime for 2000-01-01 00:00:00, useful for initialization
+#define SECONDS_PER_DAY 86400L // 60 * 60 * 24
+#define SECONDS_FROM_1970_TO_2000 946684800 // Unixtime for 2000-01-01 00:00:00, useful for initialization
 
 uint8_t bcd2bin(uint8_t val) { return val - 6 * (val >> 4); }
 uint8_t bin2bcd(uint8_t val) { return val + 6 * (val / 10); }
