@@ -4,7 +4,7 @@ with display-controller HT16K33.
 The MCU used is an ATtiny 814 or 1614.
 Without external RTC, serial debugging and OneWire, an ATtiny 412 can be
 used (99 % of flash space used).
-The circuit can be powered by a LiPo-cell. If the voltage drops below 3.0 V,
+The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V,
 the voltage is displayed as a low voltage indicator.
 A sync to DCF-time is performed in the background every 30 minutes, and immediately
 after power-up.
