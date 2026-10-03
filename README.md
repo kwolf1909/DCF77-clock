@@ -35,6 +35,7 @@ PB1 - I2C DATA for display<br>
 Compiles with MegaTinyCore on Arduino IDE.
 External libraries required: RTClib (Adafruit fork), OneWireNG, DS18B20_INT
 
-Custom built alphanumeric display used: http://www.technoblogy.com/show?2ULE
+Custom built alphanumeric display: http://www.technoblogy.com/show?2ULE<br>
+Alphanumeric displays used on board: https://www.adafruit.com/product/2154
 
 <img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" />
