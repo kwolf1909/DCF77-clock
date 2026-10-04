@@ -5,18 +5,19 @@
 //  It is displayed on an 8-digit alphanumeric- or 7-segment display with display-controller HT16K33.
 //  The MCU used is an ATtiny 814 or 1614. Without serial debugging and OneWire, an ATtiny 412
 //  can be used. The MCU used is selected by setting the appropriate #define statement.
-//  The circuit can be powered by a LiPo-cell. If the voltage drops below 3.0 V,
+//  The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V,
 //  the voltage is displayed as a low voltage indicator.
 //  A push button switches between different display modes:
 //  Time with date, time with seconds, time with temperature, time with battery voltage
 //
 //  MCU-clock: 8 MHz
 //  Timers used: TCA0 (DCF pulse width measurement),
+//               TCB0 (OneWire timing)
 //               TCD0 (millis), RTC (2 Hz generation via interrupt)
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 03 2026
+//  Date: Oct 04 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -29,8 +30,7 @@
 #include <Wire.h>
 #include <RTClib.h>
 #include <OneButtonTiny.h>
-#include <OneWireNg_CurrentPlatform.h>
-#include <DS18B20_INT.h>
+#include "OneWire.h"
 #define RTC_AVAIL
 #define ONEWIRE
 #define BUTTON
@@ -53,15 +53,17 @@
 #error "This sketch takes over TCA0 - please use a different timer for millis"
 #endif
 
+const uint8_t readDelay = 10;
+const uint16_t voltageLimit = 3000;
 const uint32_t syncDelay = 30 * 60 * 1000L;
 const uint32_t tempDelay = 20 * 1000L;
 const uint32_t buttonDelay = 250L;
 
 bool      syncReq, syncComplete, sens, buttonPressed, buttonLongPressed;
-uint8_t   timeState, showState, receiveState, syncState;
+uint8_t   timeState, showState, receiveState, syncState, readState;
 int16_t   temp;
 uint16_t  vcc;
-uint32_t  currentTime, lastSyncTime, lastTempTime, lastButtonTime;
+uint32_t  currentTime, lastSyncTime, lastButtonTime;
 
 volatile bool tickTock;
 
@@ -76,8 +78,8 @@ RTC_DS3231 rtc;
 #endif
 
 #ifdef ONEWIRE
-OneWire ow(ONEWIRE_PIN);
-DS18B20_INT sensor(&ow);
+const uint8_t pinOW = PIN4_bm;
+OneWire ow(pinOW);
 #endif
 
 #ifdef BUTTON
@@ -88,7 +90,9 @@ enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
 enum { RECEIVE_INIT = 1, RECEIVE_IDLE, RECEIVE_RECEIVING, RECEIVE_COMPLETE };
 enum { SHOW_TIMEDATE = 1, SHOW_TIMEFULL, SHOW_TIMETEMP, SHOW_LOWBATT };
 enum { SHOWSYNC_INIT = 1, SHOWSYNC_IDLE, SHOWSYNC_MINUTEMARKER, SHOWSYNC_STARTBIT,
-       SHOWSYNC_RECEIVING, SHOWSYNC_RECEIVECOMPL, SHOWSYNC_NOSIGNAL, SHOWSYNC_WAITSIGNAL };
+       SHOWSYNC_RECEIVING, SHOWSYNC_RECEIVECOMPL, SHOWSYNC_NOSIGNAL, SHOWSYNC_WAITSIGNAL
+     };
+enum { READ_IDLE = 1, READ_STARTCONV, READ_TEMP, READ_VCC};
 
 //----------------------------------------------------------------------------------
 
@@ -100,9 +104,13 @@ void setup() {
 #endif
 
 #ifdef BUTTON
-//button.setup(BUTTON_PIN, true, true);
-  button.attachClick([]() { buttonPressed = true; });
-  button.attachLongPressStart([]() { buttonLongPressed = true; });
+  //button.setup(BUTTON_PIN, true, true);
+  button.attachClick([]() {
+    buttonPressed = true;
+  });
+  button.attachLongPressStart([]() {
+    buttonLongPressed = true;
+  });
 #endif
 
 #ifdef TINYWIRE
@@ -116,11 +124,12 @@ void setup() {
   delay(1000);
 
   sens = false;
+  temp = TEMP_ERROR;
 #ifdef ONEWIRE
-  sensor.begin();
-  sensor.setResolution(ONEWIRE_RESOLUTION);
-  if (sensor.isConnected()) {
+  ow.setup();
+  if (!ow.reset()) {
     sens = true;
+    ow.setResolution(ONEWIRE_RESOLUTION);
     alpha.print("TEMP OK ");
     delay(1000);
   }
@@ -134,20 +143,15 @@ void setup() {
 #ifdef SERIALDEBUG
       Serial.println("RTC power loss!");
 #endif
-      rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0));
+      rtc.adjust(DateTime(2026, 1, 1, 0, 0, 0));
     }
     else timeState = TIME_RTC;
-    
+
     rtc.enable32K();
     alpha.print("RTC OK  ");
     delay(1000);
   }
-  else {
-#ifdef SERIALDEBUG
-    Serial.println("RTC failed!");
-#endif
-    alpha.print("RTC FAIL");
-  }
+  else alpha.print("RTC FAIL");
 #endif
 
   // use external RTC for 32K clock if available, or use internal 32K clock source
@@ -161,12 +165,12 @@ void setup() {
   receiveState = RECEIVE_INIT;
   syncState = SHOWSYNC_INIT;
   showState = SHOW_TIMEDATE;
+  readState = READ_IDLE;
   tickTock = false;
   buttonPressed = false;
   buttonLongPressed = false;
 
   lastButtonTime = millis();
-  lastTempTime = millis() - tempDelay;
 
   alpha.print("--------");
 }
@@ -190,6 +194,7 @@ void loop() {
   showState = handleButton(showState);
 #endif
 
+  readState = handleReadTempVcc(readState);
   delay(20);
 }
 
@@ -203,7 +208,7 @@ uint8_t handleAnimation(uint8_t state) {
 
   if (timeState != TIME_SYNC) return SHOWSYNC_IDLE;
   if (dcf.getSignalStatus() == false) state = SHOWSYNC_NOSIGNAL;
-  
+
   switch (state) {
     case SHOWSYNC_INIT:
       // wait for first signal
@@ -265,7 +270,7 @@ uint8_t handleAnimation(uint8_t state) {
         Serial.println("\r\nAnimation: Restart");
 #endif
         return SHOWSYNC_IDLE;
-      }      
+      }
       pos = dcf.getPos();
       if (pos != prevPos) {
         prevPos = pos;
@@ -358,20 +363,10 @@ uint8_t handleReceive(uint8_t state) {
 
 uint8_t handleTime(uint8_t state) {
 
-  static bool prevTock = false;
+  static bool prevtt = false;
 
-  if (tickTock != prevTock) {
-    prevTock = tickTock;
-
-#ifdef VOLTAGE
-    // show voltage if low (< 3V)
-    vcc = measureVoltage();
-    if ((vcc >> 8) < 3) showState = SHOW_LOWBATT;
-#endif
-    // read temperature
-#ifdef ONEWIRE
-    readTemp(tickTock);
-#endif
+  if (prevtt != tickTock) {
+    prevtt = tickTock;
 
     switch (state) {
       case TIME_NOTIME:
@@ -401,11 +396,63 @@ uint8_t handleTime(uint8_t state) {
 
 //----------------------------------------------------------------------------------
 
+uint8_t handleReadTempVcc(uint8_t state) {
+
+  static bool prevtt = false;
+  static uint8_t delayCounter = 0;
+
+  if (prevtt == tickTock) return state;
+  prevtt = tickTock;
+
+  // don't read values during DCF signal processing
+  if (dcf.getState() != dcf77::dcfState::IDLE) return state;
+
+  if (prevtt) {
+    switch (state) {
+      case READ_IDLE:
+        if (delayCounter++ >= readDelay) {
+          if (sens) return READ_STARTCONV;
+          else return READ_VCC;
+        }
+        break;
+
+      case READ_STARTCONV:
+#ifdef SERIALDEBUG
+        Serial.println("DS18B20: Starting conversion");
+#endif
+#ifdef ONEWIRE
+        ow.startConversion();
+#endif
+        return READ_TEMP;
+
+      case READ_TEMP:
+#ifdef SERIALDEBUG
+        Serial.println("DS18B20: Reading temperature");
+#endif
+#ifdef ONEWIRE
+        temp = ow.readTemperature();
+#endif
+        return READ_VCC;
+
+      case READ_VCC:
+#ifdef VOLTAGE
+        vcc = measureVoltage();
+        if (vcc < voltageLimit) showState = SHOW_LOWBATT;
+#endif
+        delayCounter = 0;
+        return READ_IDLE;
+    }
+  }
+  return state;
+}
+
+//----------------------------------------------------------------------------------
+
 #ifdef BUTTON
 uint8_t handleButton(uint8_t state) {
 
   button.tick();
-  
+
   if (buttonPressed) {
     buttonPressed = false;
     if (currentTime - lastButtonTime > buttonDelay) {
@@ -476,13 +523,13 @@ void showSync(uint8_t mode, bool dot) {
 
 void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uint8_t d, bool dot, bool sync) {
   char buffer[DISPLAY_DIGITS + 1];
-  
+
   // show time
   buffer[0] = hr >= 10 ? ('0' + hr / 10) : ' ';
   buffer[1] = ('0' + hr % 10) | (dot ? DOT : 0);
   buffer[2] = '0' + min / 10;
   buffer[3] = ('0' + min % 10) | (sync ? DOT : 0);
-  
+
   switch (mode) {
     case SHOW_TIMEDATE:
       if (d >= 10 && m >= 10) {
@@ -521,24 +568,32 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 
 #ifdef ONEWIRE
     case SHOW_TIMETEMP:
-      bool negative;
+      bool neg;
       int16_t temp2;
 
+      if (temp == TEMP_ERROR) {
+        // temp reading error
+        buffer[4] = '-';
+        buffer[5] = '-' | DOT;
+        buffer[6] = '-';
+        buffer[7] = 'C';
+        break;
+      }
       if (temp < 0) {
-        negative = true;
+        neg = true;
         temp2 = -temp;
       }
       else {
-        negative = false;
+        neg = false;
         temp2 = temp;
       }
-
-      if (negative) {
+      if (neg) {
         buffer[4] = '-';
         buffer[5] = ('0' + temp2 / 100) | DOT;
       }
       else {
-        buffer[4] = '0' + temp2 / 1000;
+        if (temp2 >= 1000) buffer[4] = '0' + temp2 / 1000;
+        else buffer[4] = ' ';
         buffer[5] = ('0' + ((temp2 / 100) % 10)) | DOT;
       }
       buffer[6] = '0' + (temp2 / 10) % 10;
@@ -558,40 +613,6 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
   buffer[8] = 0;
   alpha.print(buffer);
 }
-
-//----------------------------------------------------------------------------------
-
-#ifdef ONEWIRE
-bool readTemp(bool tick) {
-
-  static bool conv = false;
-  
-  if (!sens || dcf.getState() != dcf77::dcfState::IDLE) return false;
-
-  if (tick) {
-    // read temperature
-    if (conv) {
-#ifdef SERIALDEBUG
-      Serial.println("DS18B20: Reading temperature");
-#endif
-      if (sensor.isConversionComplete()) {
-        temp = sensor.getTempCentiC();
-        conv = false;
-        return true;
-      }
-    }
-    if (currentTime - lastTempTime > tempDelay) {
-      lastTempTime = currentTime;
-#ifdef SERIALDEBUG
-      Serial.println("DS18B20: Starting conversion");
-#endif
-      sensor.requestTemperatures();
-      conv = true;
-    }
-  }
-  return false;
-}
-#endif
 
 //----------------------------------------------------------------------------------
 
@@ -631,17 +652,17 @@ void ADCinit(void) {
   VREF.CTRLA = (VREF.CTRLA & ~VREF_ADC0REFSEL_gm) | VREF_ADC0REFSEL_1V1_gc;
   ADC0.CTRLC = ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV16_gc | ADC_SAMPCAP_bm;
   ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
-  ADC0.CTRLB = ADC_SAMPNUM_ACC64_gc; 
+  ADC0.CTRLB = ADC_SAMPNUM_ACC64_gc;
 }
 
 uint16_t measureVoltage(void) {
   ADC0.COMMAND = ADC_STCONV_bm;
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
-  
+
   uint16_t accumulatedVal = ADC0.RES;
   ADC0.INTFLAGS = ADC_RESRDY_bm;
   if (accumulatedVal == 0) return 0;
-  
+
   return (uint16_t)(72019200UL / accumulatedVal);
 }
 #endif
