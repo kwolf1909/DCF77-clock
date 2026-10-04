@@ -16,7 +16,7 @@ Push-button based interface<br>
 Short-press: select display modes: time with date | time with seconds | time with temperature | time with battery voltage.<br>
 Long-press: manually invoke DCF77-resync.<br>
 
-MCU-clock: 8 MHz,
+MCU-clock: 8 MHz<br>
 Timers used: TCA0 (DCF pulse width measurement), TCB0 (OneWire timing), TCD0 (millis), RTC (2 Hz periodic interrupt)
              
 External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
