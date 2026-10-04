@@ -25,6 +25,7 @@ External DCF77-receiver: ELV DCF-2 (MAS6180 AM-receiver).
 Temperature-sensor: DS18B20 with external pullup resistor 4,7k ohms.
 
 Pins used:<br>
+PA1 - Output, TX for serial debugging<br>
 PA3 - Input, DCF-signal, input-pullup enabled, active-low signal<br>
 PA4 - Input/Output, temp sensor DS18B20<br>
 PA6 - Output, LED which reflects the DCF-input signal<br>
