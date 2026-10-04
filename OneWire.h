@@ -37,7 +37,7 @@ class OneWire {
 };
 
 OneWire::OneWire(uint8_t pin) {
-  oneWirePin = pin;
+  oneWirePin = digitalPinToBitMask(pin);
 }
 
 void OneWire::setup(void) {

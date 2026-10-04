@@ -78,8 +78,7 @@ RTC_DS3231 rtc;
 #endif
 
 #ifdef ONEWIRE
-const uint8_t pinOW = PIN4_bm;
-OneWire ow(pinOW);
+OneWire ow(ONEWIRE_PIN);
 #endif
 
 #ifdef BUTTON
@@ -98,8 +97,8 @@ enum { READ_IDLE = 1, READ_STARTCONV, READ_TEMP, READ_VCC};
 
 void setup() {
 #ifdef SERIALDEBUG
-  Serial.swap(1);         // use PA1(TX) and PA2 (RX)
-  Serial.begin(115200);
+  Serial.swap(1); // use PA1(TX)
+  Serial.begin(115200, SERIAL_TX_ONLY);
   Serial.println("\r\nInit...");
 #endif
 
