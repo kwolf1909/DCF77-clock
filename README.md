@@ -33,8 +33,9 @@ PA7 - Input, mode select button, active low with input-pullup enabled<br>
 PB0 - I2C CLK for display<br>
 PB1 - I2C DATA for display<br>
 
-Compiles with MegaTinyCore on Arduino IDE.
-External libraries required: RTClib (Adafruit fork)
+Compiles with MegaTinyCore on Arduino IDE.<br>
+External libraries required: RTClib (Adafruit fork)<br>
+New: Support for ATmega 4809 added (Arduino Nano Every), but still untested.<br>
 
 Custom built alphanumeric display: http://www.technoblogy.com/show?2ULE<br>
 Alphanumeric displays used on board: https://www.adafruit.com/product/2154
