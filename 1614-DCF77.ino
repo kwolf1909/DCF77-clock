@@ -17,7 +17,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 04 2026
+//  Date: Oct 05 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -26,7 +26,7 @@
 #define TINYWIRE
 #define VOLTAGE
 #endif
-#if defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
+#if defined(__AVR_ATtiny1614__) || defined(__AVR_ATmega4809__)
 #include <Wire.h>
 #include <RTClib.h>
 #include <OneButtonTiny.h>
@@ -36,7 +36,7 @@
 #define BUTTON
 #define VOLTAGE
 #define SEG14
-//#define SERIALDEBUG
+#define SERIALDEBUG
 #endif
 #include "AlphaDisplay.h"
 #include "DCF77.h"
@@ -97,8 +97,13 @@ enum { READ_IDLE = 1, READ_STARTCONV, READ_TEMP, READ_VCC};
 
 void setup() {
 #ifdef SERIALDEBUG
+#if defined(__AVR_ATtiny1614__)
   Serial.swap(1); // use PA1(TX)
   Serial.begin(115200, SERIAL_TX_ONLY);
+#endif
+#if defined(__AVR_ATmega4809__)
+  Serial.begin(115200);
+#endif
   Serial.println("\r\nInit...");
 #endif
 
@@ -247,9 +252,6 @@ uint8_t handleAnimation(uint8_t state) {
         prevPulse = pulse;
         if (pulse == dcf77::pulseType::START) showSync(state, true);
         if (pulse == dcf77::pulseType::END) showSync(state, false);
-#ifdef SERIALDEBUG
-        if (pulse == dcf77::pulseType::END) Serial.printf("Animation: PulseLen %u\r\n", dcf.getLastPulseLen());
-#endif
       }
       break;
 
@@ -404,7 +406,7 @@ uint8_t handleReadTempVcc(uint8_t state) {
   prevtt = tickTock;
 
   // don't read values during DCF signal processing
-  if (dcf.getState() != dcf77::dcfState::IDLE) return state;
+  if (dcf.getState() != dcf77::dcfState::IDLE) return READ_IDLE;
 
   if (prevtt) {
     switch (state) {
@@ -649,9 +651,13 @@ void RTCinit(void) {
 #ifdef VOLTAGE
 void ADCinit(void) {
   VREF.CTRLA = (VREF.CTRLA & ~VREF_ADC0REFSEL_gm) | VREF_ADC0REFSEL_1V1_gc;
-  ADC0.CTRLC = ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV16_gc | ADC_SAMPCAP_bm;
-  ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
   ADC0.CTRLB = ADC_SAMPNUM_ACC64_gc;
+  ADC0.CTRLC = ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV16_gc | ADC_SAMPCAP_bm;
+#if defined (__AVR_ATmega4809__)
+  ADC0.MUXPOS = ADC_MUXPOS_DACREF_gc;
+#else
+  ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
+#endif
 }
 
 uint16_t measureVoltage(void) {
