@@ -1,5 +1,12 @@
 // OneWire object, includes DS18B20 temperature reading
 
+#if defined (__AVR_ATtiny1614__)
+PORT_t* const portOW[] = { &PORTA, &PORTB };
+#endif
+#if defined (__AVR_ATmega4809__)
+PORT_t* const portOW[] = { &PORTA, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF };
+#endif
+
 class OneWire {
   public:    
     OneWire(uint8_t);
@@ -11,9 +18,9 @@ class OneWire {
     bool startConversion();
     int16_t readTemperature();
     bool setResolution(uint8_t);
- 
+    
   private:
-    uint8_t oneWirePin;
+    uint8_t pinBitmask, pinBit, portID;
     uint8_t dataBytes[9];
     const uint8_t ReadROM = 0x33;
     const uint8_t MatchROM = 0x55;
@@ -37,12 +44,15 @@ class OneWire {
 };
 
 OneWire::OneWire(uint8_t pin) {
-  oneWirePin = digitalPinToBitMask(pin);
+  pinBitmask = digitalPinToBitMask(pin);
+  pinBit = digitalPinToBitPosition(pin);
+  portID = digitalPinToPort(pin);
 }
 
 void OneWire::setup(void) {
 
-  PORTA.DIRCLR = oneWirePin;
+  if (portID == NOT_A_PORT) return;
+  portOW[portID]->DIRCLR = pinBitmask;
   
   TCB0.CNT = 0;
   TCB0.CCMP = 0xFFFF;
@@ -51,30 +61,28 @@ void OneWire::setup(void) {
   TCB0.CTRLB = TCB_CNTMODE_INT_gc;
   TCB0.CTRLA = TCB_CLKSEL_CLKDIV2_gc | TCB_ENABLE_bm;
   //TCB0.INTCTRL = TCB_CAPT_bm;
-
-  //TCCR1 = 0<<CTC1 | 0<<PWM1A | 5<<CS10;  // CTC mode, 500kHz clock
-  //GTCCR = 0<<PWM1B;
 }
 
 inline void OneWire::delayMicros(uint16_t micro) {
-  // substract 4µs for processing time
-  TCB0.CCMP = (micro - 4) * 4;    // F_PER / 2 = 4 MHz
+  const uint16_t factor = F_CPU / 2000000;
+  
+  TCB0.CCMP = (micro - 4) * factor;    // F_PER / 2, substract 4µs for register setup time
   TCB0.CNT = 0;
   TCB0.INTFLAGS = TCB_CAPT_bm;
   while (!(TCB0.INTFLAGS & TCB_CAPT_bm));
 }
 
 inline void OneWire::pinLow() {
-  PORTA.DIRSET = oneWirePin;
-  PORTA.OUTCLR = oneWirePin;
+  portOW[portID]->DIRSET = pinBitmask;
+  portOW[portID]->OUTCLR = pinBitmask;
 }
 
 inline void OneWire::pinRelease() {
-  PORTA.DIRCLR = oneWirePin;
+  portOW[portID]->DIRCLR = pinBitmask;
 }
 
 inline uint8_t OneWire::pinRead () {
-  return (PORTA.IN & oneWirePin) ? 1 : 0;
+  return (portOW[portID]->IN & pinBitmask) ? 1 : 0;
 }
 
 void OneWire::lowRelease(uint16_t low, uint16_t high) {
