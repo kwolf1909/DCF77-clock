@@ -9,7 +9,7 @@ A sync to DCF-time is performed in the background every 30 minutes, and immediat
 after power-up.
 The software uses a layer-based approach. Low-level: DCF-object with interrupt handler,
 mid-level: receiving data state machine, upper level: display handling and user interface,
-No blocking code exists, fully asynchronous operation.
+No blocking code, using several finite state machines (FSM).
 
 Push-button based interface<br>
 Short-press: select display modes: time with date | time with seconds | time with temperature | time with battery voltage.<br>
