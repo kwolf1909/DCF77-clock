@@ -2,7 +2,7 @@ This program receives the european DCF77 time signal and syncs it with the
 external RTC-clock. It is displayed on a 8-digit 14- or 7-segment display
 with display-controller HT16K33.
 The MCU used is an ATtiny1614 or an ATmega4809 (Arduino Nano Every). Without external RTC, serial debugging and OneWire, an ATtiny412 can be
-used (99 % of flash space used). With some modifications, the newer AVR-series like the AVR32DA28 could be used as well.
+used (99 % of flash space used). With some small modifications, the newer AVR-series like the AVR32DA28 could be used as well.
 The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V,
 the voltage is displayed as a low voltage indicator.
 A sync to DCF-time is performed in the background every 30 minutes, and immediately
@@ -39,6 +39,7 @@ Notes for ATmega4809 (Arduino Nano Every):<br>
 Actually there is no way to feed the external 32K clock signal from the RTC because TOSC1-pin is not accessible. Hence, the internal 32K clock is used.
 The voltage measurement for the own supply voltage is not working yet, therefore the functionality is disabled here.<br>
 
+DFRobot 7-segment 8-digit display: https://www.dfrobot.com/product-1978.html<br>
 Custom built alphanumeric display: http://www.technoblogy.com/show?2ULE<br>
 Alphanumeric displays used on board: https://www.adafruit.com/product/2154
 
