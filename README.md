@@ -36,7 +36,7 @@ Compiles with MegaTinyCore on Arduino IDE.<br>
 External libraries required: RTClib (Adafruit fork)<br>
 
 Notes for ATmega4809 (Arduino Nano Every):<br>
-Actually there is no way to feed the external 32K clock signal from the RTC. Hence, the internal 32K clock is used.
+Actually there is no way to feed the external 32K clock signal from the RTC because TOSC1-pin is not accessible. Hence, the internal 32K clock is used.
 The voltage measurement for the own supply voltage is not working yet, therefore the functionality is disabled here.<br>
 
 Custom built alphanumeric display: http://www.technoblogy.com/show?2ULE<br>
