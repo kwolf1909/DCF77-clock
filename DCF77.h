@@ -135,12 +135,14 @@ void dcf77::handle(void) {
   
   if (pulseReceivedDcf == false) return;
   pulseReceivedDcf = false;
+  pulseReceivedAnim = true;
 
   switch (state) {
     case dcfState::IDLE:
       if (dcfReq) {
         dcfComplete = false;
         validPulses = 0;
+        dcfPos = 0;
         signalStatus = dcfSignal::WAIT;
         state = dcfState::DETECT;
       }
@@ -280,7 +282,7 @@ void dcf77::request(void) {
   restartMarker = false;
 
   // clear receive data buffer
-  for (uint8_t i = 0; i < DCF_SIZE; i++) bitArray[i] = 0;
+  //for (uint8_t i = 0; i < DCF_SIZE; i++) bitArray[i] = 0;
 }
 
 bool dcf77::getRequestState(void) {
@@ -454,7 +456,6 @@ void dcf77::handleInt(bool signalLevel) {
   }
   lastPulseLength = pulseLength;
   pulseReceivedDcf = true;
-  pulseReceivedAnim = true;
   noSignalMarker = false;
   return;
 }

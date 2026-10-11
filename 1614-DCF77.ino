@@ -23,7 +23,6 @@
 #include <TinyI2CMaster.h>
 #include "DateTime.h"
 #define TINYWIRE
-//#define BUTTON
 #define LED
 #define DCF_PIN                 4   // PA3
 #define LED_PIN                 0   // PA6
@@ -35,7 +34,6 @@
 #include "OneWire.h"
 #define RTCEXT
 #define ONEWIRE
-#define BUTTON
 #define VOLTAGE
 #define SEG14
 #define LED
@@ -50,7 +48,6 @@
 #include "OneWire.h"
 #define RTCEXT
 #define ONEWIRE
-#define BUTTON
 //#define VOLTAGE
 #define SEG14
 #define LED
@@ -118,9 +115,7 @@ OneWire ow(ONEWIRE_PIN);
 enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
 enum { RECEIVE_INIT = 1, RECEIVE_IDLE, RECEIVE_RECEIVING, RECEIVE_COMPLETE };
 enum { SHOW_TIMEDATE = 1, SHOW_TIMEFULL, SHOW_TIMETEMP, SHOW_LOWBATT };
-enum { SHOWSYNC_IDLE = 1, SHOWSYNC_MINUTEMARKER, SHOWSYNC_STARTBIT,
-       SHOWSYNC_RECEIVING, SHOWSYNC_RECEIVECOMPL, SHOWSYNC_NOSIGNAL, SHOWSYNC_WAITSIGNAL
-     };
+enum { SHOWSYNC_IDLE = 1, SHOWSYNC_MINUTEMARKER, SHOWSYNC_RECEIVING, SHOWSYNC_RECEIVECOMPL, SHOWSYNC_NOSIGNAL, SHOWSYNC_WAITSIGNAL };
 enum { READ_IDLE = 1, READ_STARTCONV, READ_TEMP, READ_VCC};
 
 //----------------------------------------------------------------------------------
@@ -150,13 +145,11 @@ void setup() {
   delay(1000);
 
   // enable button input pin with pullup (active low)
-#ifdef BUTTON
   pinBitmaskButton = digitalPinToBitMask(BUTTON_PIN);
   portIDButton = digitalPinToPort(BUTTON_PIN);
   portButton[portIDButton]->DIRCLR = pinBitmaskButton;
-  register8_t *pinCtrlReg = &portButton[portIDButton]->PIN0CTRL + digitalPinToBitPosition(BUTTON_PIN);
+  register8_t *pinCtrlReg = &(portButton[portIDButton]->PIN0CTRL) + digitalPinToBitPosition(BUTTON_PIN);
   *pinCtrlReg = PORT_PULLUPEN_bm;
-#endif
 
 #ifdef ONEWIRE
   ow.setup();
@@ -203,8 +196,6 @@ void setup() {
   sens = false;
   voltage = false;
   vcc = voltageLimit;
-
-  alpha.print("--------");
 }
 
 //----------------------------------------------------------------------------------
@@ -223,13 +214,14 @@ void loop() {
   // state machine for time and display handling
   timeState = handleTime(timeState);
 
-  // handle temp and voltage reading
-  readState = handleReadTempVcc(readState);
-
-#ifdef BUTTON
   // switching display modes
   showState = handleButton(showState);
+
+#if defined (ONEWIRE) || defined (VOLTAGE)
+  // handle temp and voltage reading
+  readState = handleReadTempVcc(readState);
 #endif
+  delay(10);
 }
 
 //----------------------------------------------------------------------------------
@@ -264,13 +256,10 @@ uint8_t handleAnimation(uint8_t state) {
       break;
 
     case SHOWSYNC_RECEIVING:
-      if (dcf.checkComplete()) return SHOWSYNC_RECEIVECOMPL;
+      if (dcf.checkComplete()) return SHOWSYNC_IDLE;
       if (dcf.checkRestart()) return SHOWSYNC_IDLE;
       if (dcf.checkReceiveBit()) showSync(state);
       break;
-
-    case SHOWSYNC_RECEIVECOMPL:
-      return SHOWSYNC_IDLE;
 
     case SHOWSYNC_NOSIGNAL:
       if (dcf.getSignalStatus() == dcf77::dcfSignal::WAIT) {
@@ -390,7 +379,7 @@ uint8_t handleTime(uint8_t state) {
 }
 
 //----------------------------------------------------------------------------------
-
+#if defined (ONEWIRE) || defined (VOLTAGE)
 uint8_t handleReadTempVcc(uint8_t state) {
 
   bool tt = tickTock;
@@ -448,10 +437,10 @@ uint8_t handleReadTempVcc(uint8_t state) {
   }
   return state;
 }
+#endif
 
 //----------------------------------------------------------------------------------
 
-#ifdef BUTTON
 uint8_t handleButton(uint8_t state) {
   bool button;
   static uint32_t lastButtonTime = 0L;
@@ -488,7 +477,6 @@ uint8_t handleButton(uint8_t state) {
   }
   return state;
 }
-#endif
 
 //----------------------------------------------------------------------------------
 
