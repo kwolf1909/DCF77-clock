@@ -73,9 +73,10 @@ void AlphaDisplay::init(uint8_t addr, uint8_t digits, uint8_t brightness) {
 void AlphaDisplay::send(uint8_t x) {
   uint16_t segments;
 
+  if (x < 32) return;
 #ifdef SEG14
   uint16_t dp = 0;
-  if (x & 0x80) {
+  if (x & DOT) {
     dp = 0x4000;
     x &= 0x7F;
   }
@@ -84,8 +85,8 @@ void AlphaDisplay::send(uint8_t x) {
   wireWrite(segments);
   wireWrite(segments >> 8);
 #else
-  segments = segs7[(x & 0x7F )- 32];
-  segments |= (x & 0x80);
+  segments = segs7[(x & 0x7F) - 32];
+  segments |= (x & DOT);
   wireWrite(segments);
   wireWrite(0);
 #endif
@@ -111,7 +112,7 @@ void AlphaDisplay::print(const char *s) {
   while (s[i] && pos < numDigits) {
     c = s[i];
     if (s[i + 1] == '.') {
-      c |= 0x80;
+      c |= DOT;
       i++;
     }
     send(c);
@@ -125,7 +126,7 @@ void AlphaDisplay::print(const char *s) {
 void AlphaDisplay::write(uint8_t c) {
   if (c == 13) cur = 0;
   if (c == '.') {
-    c = buf[cur - 1] | 0x80;
+    c = buf[cur - 1] | DOT;
     wireBegin(address);
     wireWrite((cur - 1) * 2);
     send(c);

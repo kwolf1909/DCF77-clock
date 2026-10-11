@@ -1,11 +1,16 @@
 // OneWire object, includes DS18B20 temperature reading
 
+#if defined (__AVR_ATtiny412__)
+PORT_t* const portOW[] = { &PORTA };
+#endif
 #if defined (__AVR_ATtiny1614__)
 PORT_t* const portOW[] = { &PORTA, &PORTB };
 #endif
 #if defined (__AVR_ATmega4809__)
 PORT_t* const portOW[] = { &PORTA, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF };
 #endif
+
+#define TEMP_ERROR -1000
 
 class OneWire {
   public:    
@@ -147,8 +152,6 @@ bool OneWire::startConversion() {
   }
   return true;
 }
-
-#define TEMP_ERROR -1000
 
 // read temperature of a single DS18B20 on the bus
 // returns degrees multiplied by 100 (integer only)

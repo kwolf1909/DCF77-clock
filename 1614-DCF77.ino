@@ -16,21 +16,22 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 08 2026
+//  Date: Oct 11 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
 #include <TinyI2CMaster.h>
 #include "DateTime.h"
 #define TINYWIRE
+//#define BUTTON
 #define LED
 #define DCF_PIN                 4   // PA3
-#define LED_PIN                 1   // PA7
+#define LED_PIN                 0   // PA6
+#define BUTTON_PIN              1   // PA7
 #endif
 #if defined(__AVR_ATtiny1614__)
 #include <Wire.h>
 #include <RTClib.h>
-#include <OneButtonTiny.h>
 #include "OneWire.h"
 #define RTCEXT
 #define ONEWIRE
@@ -39,14 +40,13 @@
 #define SEG14
 #define LED
 #define DCF_PIN                 10  // PA3
-#define LED_PIN                 2   // PA6
+#define LED_PIN                 1   // PA5
 #define BUTTON_PIN              3   // PA7
 #define ONEWIRE_PIN             0   // PA4
 #endif
 #if defined(__AVR_ATmega4809__)
 #include <Wire.h>
 #include <RTClib.h>
-#include <OneButtonTiny.h>
 #include "OneWire.h"
 #define RTCEXT
 #define ONEWIRE
@@ -79,14 +79,26 @@ const uint8_t   readDelay = 10;
 const uint16_t  voltageLimit = 3000;
 const uint32_t  syncDelay = 30 * 60 * 1000L;
 const uint32_t  tempDelay = 20 * 1000L;
-const uint32_t  buttonDelay = 250L;
+const uint32_t  buttonDelay = 500L;
 
+#if defined (__AVR_ATtiny412__)
+PORT_t* const portButton[] = { &PORTA };
+#endif
+#if defined (__AVR_ATtiny1614__)
+PORT_t* const portButton[] = { &PORTA, &PORTB };
+#endif
+#if defined (__AVR_ATmega4809__)
+PORT_t* const portButton[] = { &PORTA, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF };
+#endif
+
+#ifdef SERIALDEBUG
 char      buffer[40];
-bool      syncReq, syncComplete, sens, buttonPressed, buttonLongPressed;
-uint8_t   timeState, showState, receiveState, syncState, readState;
+#endif
+bool      syncReq, syncComplete, sens, voltage, buttonPressed;
+uint8_t   timeState, showState, receiveState, syncState, readState, pinBitmaskButton, portIDButton;
 int16_t   temp;
 uint16_t  vcc;
-uint32_t  currentTime, lastSyncTime;
+uint32_t  currentTime, lastSyncTime, buttonTime;
 volatile bool tickTock;
 
 AlphaDisplay alpha;
@@ -101,10 +113,6 @@ RTC_DS3231 rtc;
 
 #ifdef ONEWIRE
 OneWire ow(ONEWIRE_PIN);
-#endif
-
-#ifdef BUTTON
-OneButtonTiny button(BUTTON_PIN, true, true);
 #endif
 
 enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
@@ -131,15 +139,6 @@ void setup() {
   Serial.println(buffer);
 #endif
 
-#ifdef BUTTON
-  button.attachClick([]() {
-    buttonPressed = true;
-  });
-  button.attachLongPressStart([]() {
-    buttonLongPressed = true;
-  });
-#endif
-
 #ifdef TINYWIRE
   TinyI2C.init();
 #else
@@ -150,11 +149,18 @@ void setup() {
   alpha.print("INIT");
   delay(1000);
 
-  sens = false;
+  // enable button input pin with pullup (active low)
+#ifdef BUTTON
+  pinBitmaskButton = digitalPinToBitMask(BUTTON_PIN);
+  portIDButton = digitalPinToPort(BUTTON_PIN);
+  portButton[portIDButton]->DIRCLR = pinBitmaskButton;
+  register8_t *pinCtrlReg = &portButton[portIDButton]->PIN0CTRL + digitalPinToBitPosition(BUTTON_PIN);
+  *pinCtrlReg = PORT_PULLUPEN_bm;
+#endif
+
 #ifdef ONEWIRE
   ow.setup();
   if (!ow.reset()) {
-    sens = true;
     ow.setResolution(ONEWIRE_RESOLUTION);
     alpha.print("TEMP OK ");
     delay(1000);
@@ -194,7 +200,8 @@ void setup() {
   readState = READ_IDLE;
   tickTock = false;
   buttonPressed = false;
-  buttonLongPressed = false;
+  sens = false;
+  voltage = false;
   vcc = voltageLimit;
 
   alpha.print("--------");
@@ -204,6 +211,7 @@ void setup() {
 
 void loop() {
 
+  // handle DCF signal processing
   dcf.handle();
 
   // show sync animation and countdown
@@ -233,44 +241,43 @@ uint8_t handleAnimation(uint8_t state) {
   switch (state) {
     case SHOWSYNC_IDLE:
       // wait for first signal
-      showSync(SHOWSYNC_WAITSIGNAL, 0, false);
+      showSync(SHOWSYNC_WAITSIGNAL);
       return SHOWSYNC_WAITSIGNAL;
 
     case SHOWSYNC_WAITSIGNAL:
-      if (dcf.getSignalStatus() == dcf77::dcfSignal::GOOD) return SHOWSYNC_MINUTEMARKER;
+      if (dcf.getSignalStatus() == dcf77::dcfSignal::GOOD) {
+        showSync(SHOWSYNC_MINUTEMARKER);
+        return SHOWSYNC_MINUTEMARKER;
+      }
       if (dcf.getSignalStatus() == dcf77::dcfSignal::NOSIGNAL) {
-        showSync(SHOWSYNC_NOSIGNAL, 0, false);
+        showSync(SHOWSYNC_NOSIGNAL);
         return SHOWSYNC_NOSIGNAL;
       }
       break;
 
-    case SHOWSYNC_NOSIGNAL:
-      if (dcf.getSignalStatus() == dcf77::dcfSignal::WAIT) {
-        showSync(SHOWSYNC_WAITSIGNAL, 0, false);
-        return SHOWSYNC_WAITSIGNAL;
-      }
-      break;
-
     case SHOWSYNC_MINUTEMARKER:
-      if (dcf.checkMinuteMarker()) return SHOWSYNC_STARTBIT;
-      if (dcf.checkPulseReceived()) showSync(state, 0, dcf.getLastPulseType() == dcf77::dcfPulseType::START ? true : false);
-      break;
-
-    case SHOWSYNC_STARTBIT:
-      if (dcf.checkStartBit()) {
-        showSync(state, 0, false);
+      if (dcf.checkMinuteMarker()) {
+        showSync(SHOWSYNC_RECEIVING);
         return SHOWSYNC_RECEIVING;
       }
+      if (dcf.checkPulseReceived()) showSync(state);
       break;
 
     case SHOWSYNC_RECEIVING:
       if (dcf.checkComplete()) return SHOWSYNC_RECEIVECOMPL;
       if (dcf.checkRestart()) return SHOWSYNC_IDLE;
-      if (dcf.checkReceiveBit()) showSync(state, dcf.getPos(), false);
+      if (dcf.checkReceiveBit()) showSync(state);
       break;
 
     case SHOWSYNC_RECEIVECOMPL:
       return SHOWSYNC_IDLE;
+
+    case SHOWSYNC_NOSIGNAL:
+      if (dcf.getSignalStatus() == dcf77::dcfSignal::WAIT) {
+        showSync(SHOWSYNC_WAITSIGNAL);
+        return SHOWSYNC_WAITSIGNAL;
+      }
+      break;
   }
   return state;
 }
@@ -400,8 +407,11 @@ uint8_t handleReadTempVcc(uint8_t state) {
     switch (state) {
       case READ_IDLE:
         if (delayCounter++ >= readDelay) {
-          if (sens) return READ_STARTCONV;
-          else return READ_VCC;
+#ifdef ONEWIRE
+          return READ_STARTCONV;
+#else
+          return READ_VCC;
+#endif
         }
         break;
 
@@ -414,6 +424,7 @@ uint8_t handleReadTempVcc(uint8_t state) {
       case READ_TEMP:
 #ifdef ONEWIRE
         temp = ow.readTemperature();
+        if (temp != TEMP_ERROR) sens = true;
 #ifdef SERIALDEBUG
         sprintf(buffer, "DS18B20: Reading temperature: %u", temp);
         Serial.println(buffer);
@@ -424,7 +435,8 @@ uint8_t handleReadTempVcc(uint8_t state) {
       case READ_VCC:
 #ifdef VOLTAGE
         vcc = measureVoltage();
-        if (vcc < voltageLimit) showState = SHOW_LOWBATT;
+        voltage = true;
+        if (vcc > 0 && vcc < voltageLimit) showState = SHOW_LOWBATT;
 #ifdef SERIALDEBUG
         sprintf(buffer, "Voltage: %u", vcc);
         Serial.println(buffer);
@@ -441,9 +453,20 @@ uint8_t handleReadTempVcc(uint8_t state) {
 
 #ifdef BUTTON
 uint8_t handleButton(uint8_t state) {
+  bool button;
+  static uint32_t lastButtonTime = 0L;
+  
+  // read low-active button state
+  button = (portButton[portIDButton]->IN & pinBitmaskButton) ? false : true;
 
-  button.tick();
-
+  // debounce
+  if (button) { 
+    buttonTime = millis();
+    if (buttonTime - lastButtonTime > buttonDelay) {
+      buttonPressed = true;
+      lastButtonTime = buttonTime;
+    }
+  }
   if (buttonPressed) {
     buttonPressed = false;
     switch (state) {
@@ -452,21 +475,15 @@ uint8_t handleButton(uint8_t state) {
 
       case SHOW_TIMEFULL:
         if (sens) return SHOW_TIMETEMP;
-        else return SHOW_LOWBATT;
+        if (voltage) return SHOW_LOWBATT;
+        return SHOW_TIMEDATE;
 
       case SHOW_TIMETEMP:
-        return SHOW_LOWBATT;
+        if (voltage) return SHOW_LOWBATT;
+        return SHOW_TIMEDATE;
 
       case SHOW_LOWBATT:
         return SHOW_TIMEDATE;
-    }
-  }
-  if (buttonLongPressed) {
-    buttonLongPressed = false;
-    if (timeState == TIME_SYNCED) {
-      timeState = TIME_SYNC;
-      syncState = SHOWSYNC_IDLE;
-      syncReq = true;
     }
   }
   return state;
@@ -475,37 +492,46 @@ uint8_t handleButton(uint8_t state) {
 
 //----------------------------------------------------------------------------------
 
-void showSync(uint8_t mode, uint8_t pos, bool dot) {
+void showSync(uint8_t mode) {
+  bool dot;
   char buffer[DISPLAY_DIGITS + 1];
-  uint8_t posrev;
-  static uint8_t posdot = 0;
+  uint8_t posRev;
+  dcf77::dcfPulse pulse;
+  dcf77::dcfPulseType pulseType;
+  static dcf77::dcfPulse lastPulse;
 
   switch (mode) {
+    // show receive bits during wait for minute marker
     case SHOWSYNC_MINUTEMARKER:
+      pulse = dcf.getLastPulse();
+      pulseType = dcf.getLastPulseType();
       strcpy(buffer, "SYNC    ");
-      if (dot) {
-        buffer[4 + posdot] |= DOT;
-        posdot++;
+      dot = false;
+      if (pulseType == dcf77::dcfPulseType::START) dot = true;
+      if (pulseType == dcf77::dcfPulseType::END) lastPulse = pulse;
+      switch (lastPulse) {
+        case dcf77::dcfPulse::BIT0: buffer[7] = '0'; break;
+        case dcf77::dcfPulse::BIT1: buffer[7] = '1'; break;
+        case dcf77::dcfPulse::INVALID: buffer[7] = 'F'; break;
+        case dcf77::dcfPulse::PAUSE:
+        case dcf77::dcfPulse::NONE:
+          break;
       }
-      if (posdot > 3) posdot = 0;
+      buffer[7] |= (dot ? DOT : 0);
       break;
 
-    case SHOWSYNC_STARTBIT:
-      strcpy(buffer, "START   ");
-      break;
-
+    // show countdown with number of receiving bits
     case SHOWSYNC_RECEIVING:
     case SHOWSYNC_RECEIVECOMPL:
-      posdot = 0;
-      posrev = DCF_SIZE - pos - 1;
+      posRev = DCF_SIZE - dcf.getPos() - 1;
       strcpy(buffer, "RECV    ");
-      if (posrev >= 10) buffer[6] = '0' + posrev / 10;
-      buffer[7] = '0' + posrev % 10;
+      if (posRev >= 10) buffer[6] = '0' + posRev / 10;
+      buffer[7] = '0' + posRev % 10;
       break;
 
     case SHOWSYNC_WAITSIGNAL:
+      lastPulse = dcf77::dcfPulse::NONE;
       strcpy(buffer, "WAIT    ");
-      pos = 0;
       break;
 
     case SHOWSYNC_NOSIGNAL:
@@ -525,7 +551,8 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
   buffer[1] = ('0' + hr % 10) | (dot ? DOT : 0);
   buffer[2] = '0' + min / 10;
   buffer[3] = ('0' + min % 10) | (sync ? DOT : 0);
-
+  buffer[8] = 0;
+  
   switch (mode) {
     case SHOW_TIMEDATE:
       if (d >= 10 && m >= 10) {
@@ -564,8 +591,9 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 
 #ifdef ONEWIRE
     case SHOW_TIMETEMP:
-      bool neg;
-      int16_t temp2;
+    {
+      bool neg = false;
+      int16_t temp2 = temp;
 
       if (temp == TEMP_ERROR) {
         // temp reading error
@@ -579,24 +607,15 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
         neg = true;
         temp2 = -temp;
       }
-      else {
-        neg = false;
-        temp2 = temp;
-      }
-      if (neg) {
-        buffer[4] = '-';
-        buffer[5] = ('0' + temp2 / 100) | DOT;
-      }
-      else {
-        if (temp2 >= 1000) buffer[4] = '0' + temp2 / 1000;
-        else buffer[4] = ' ';
-        buffer[5] = ('0' + ((temp2 / 100) % 10)) | DOT;
-      }
+      buffer[4] = ' ';
+      if (temp2 >= 1000) buffer[4] = '0' + temp2 / 1000;
+      if (neg) buffer[4] = '-';
+      buffer[5] = ('0' + ((temp2 / 100) % 10)) | DOT;
       buffer[6] = '0' + (temp2 / 10) % 10;
       buffer[7] = 'C';
       break;
+    }
 #endif
-
 #ifdef VOLTAGE
     case SHOW_LOWBATT:
       buffer[4] = ' ';
@@ -606,7 +625,6 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
       break;
 #endif
   }
-  buffer[8] = 0;
   alpha.print(buffer);
 }
 
@@ -646,7 +664,7 @@ void RTCinit(void) {
 #ifdef VOLTAGE
 // configure internal ADC for reading own supply voltage
 void ADCinit(void) {
-#if defined(__AVR_ATtiny1614__)
+#if defined(__AVR_ATtiny412__) || defined(__AVR_ATtiny1614__)
   VREF.CTRLA = (VREF.CTRLA & ~VREF_ADC0REFSEL_gm) | VREF_ADC0REFSEL_1V1_gc;
   ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
   ADC0.CTRLB = ADC_SAMPNUM_ACC64_gc;
@@ -665,7 +683,7 @@ void ADCinit(void) {
 
 // the voltage is read by accumulating 64 samples
 uint16_t measureVoltage(void) {
-#if defined(__AVR_ATtiny1614__)
+#if defined(__AVR_ATtiny412__) || defined(__AVR_ATtiny1614__)
   ADC0.COMMAND = ADC_STCONV_bm;
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
   ADC0.INTFLAGS = ADC_RESRDY_bm;
