@@ -95,7 +95,6 @@ bool      syncReq, syncComplete, sens, voltage, buttonPressed;
 uint8_t   timeState, showState, receiveState, syncState, readState, pinBitmaskButton, portIDButton;
 int16_t   temp;
 uint16_t  vcc;
-uint32_t  currentTime, lastSyncTime, buttonTime;
 volatile bool tickTock;
 
 AlphaDisplay alpha;
@@ -275,9 +274,11 @@ uint8_t handleAnimation(uint8_t state) {
 
 uint8_t handleReceive(uint8_t state) {
 
+  static uint32_t lastSyncTime;
+
   switch (state) {
     case RECEIVE_INIT:
-      lastSyncTime = currentTime;
+      lastSyncTime = millis();
       syncComplete = false;
       return RECEIVE_IDLE;
 
@@ -291,7 +292,7 @@ uint8_t handleReceive(uint8_t state) {
         dcf.request();
         return RECEIVE_RECEIVING;
       }
-      if (currentTime - lastSyncTime > syncDelay && dt.second() == 50) syncReq = true;
+      if (millis() - lastSyncTime > syncDelay && dt.second() == 50) syncReq = true;
       break;
 
     case RECEIVE_RECEIVING:
@@ -323,7 +324,7 @@ uint8_t handleReceive(uint8_t state) {
 
         // job done
         syncComplete = true;
-        lastSyncTime = currentTime;
+        lastSyncTime = millis();
         return RECEIVE_IDLE;
       }
       else {
@@ -443,6 +444,7 @@ uint8_t handleReadTempVcc(uint8_t state) {
 
 uint8_t handleButton(uint8_t state) {
   bool button;
+  uint32_t buttonTime;
   static uint32_t lastButtonTime = 0L;
   
   // read low-active button state
