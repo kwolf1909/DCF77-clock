@@ -33,7 +33,7 @@ PB1 - I2C DATA for display<br>
 Compiles with MegaTinyCore on Arduino IDE.<br>
 External libraries required: RTClib (Adafruit fork)<br>
 
-Notes for ATmega4809 (Arduino Nano Every):<br>
+Notes for Arduino Nano Every (ATmega4809):<br>
 Actually there is no way to feed the external 32K clock signal from the RTC because TOSC1-pin is not accessible. Hence, the internal 32K clock is used.
 The voltage measurement for the own supply voltage is not working yet, therefore the functionality is disabled here.<br>
 
