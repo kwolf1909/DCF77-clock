@@ -3,13 +3,13 @@
 #include <avr/io.h>
 
 const uint16_t timerFreq = F_CPU / 1024;                      // prescaler = 1024
-const uint16_t timerCmpMatch = timerFreq * 2;                 // 2000 ms
+const uint16_t timerCmpMatch = timerFreq / 1000 * 2500;       // 2500 ms
 const uint16_t timerTop = 65535;
 const uint16_t bit0MinDuration = timerFreq / 1000 * 20;       // 20 ms
-const uint16_t bit0DurationLow = timerFreq / 1000 * 80;       // 80 ms
-const uint16_t bit0DurationHigh = timerFreq / 1000 * 130;     // 130 ms
-const uint16_t bit1DurationLow = timerFreq / 1000 * 180;      // 180 ms
-const uint16_t bit1DurationHigh = timerFreq / 1000 * 240;     // 240 ms
+const uint16_t bit0DurationLow = timerFreq / 1000 * 70;       // 70 ms
+const uint16_t bit0DurationHigh = timerFreq / 1000 * 150;     // 150 ms
+const uint16_t bit1DurationLow = timerFreq / 1000 * 170;      // 170 ms
+const uint16_t bit1DurationHigh = timerFreq / 1000 * 250;     // 250 ms
 const uint16_t pauseDurationLow = timerFreq / 1000 * 1400;    // 1400 ms
 const uint16_t pauseDurationHigh = timerFreq / 1000 * 2200;   // 2200 ms
 
@@ -363,39 +363,38 @@ void dcf77::noSignal(void) {
 
 uint8_t dcf77::bitScale(uint8_t *bitstring, uint8_t len) {
   static const uint8_t weights[] = {1, 2, 4, 8, 10, 20, 40, 80};
-  static const uint8_t weights_len = 8;
+  static const uint8_t weightsLen = 8;
   uint8_t value = 0;
 
-  for (uint8_t i = 0; i < len && i < weights_len; i++) value += weights[i] * bitstring[i];
+  for (uint8_t i = 0; i < len && i < weightsLen; i++) value += weights[i] * bitstring[i];
 
   return value;
 }
 
 dcf77::result dcf77::checkParity(void) {
-  //DCF77 uses even parity
   uint8_t minuteParity = 0;
   uint8_t hourParity = 0;
   uint8_t dateParity = 0;
 
-  // Calculate parity for minute
+  // calculate parity for minute
   for (uint8_t i = 21; i < 28; ++i) minuteParity ^= bitArray[i];
 
-  // Calculate parity for hour
+  // calculate parity for hour
   for (uint8_t i = 29; i < 35; ++i) hourParity ^= bitArray[i];
 
-  // Calculate parity for date
+  // calculate parity for date
   for (uint8_t i = 36; i < 58; ++i) dateParity ^= bitArray[i];
 
-  // Check the parity bits for minutes and hours
+  // check the parity bits for minutes and hours - DCF77 uses even parity
   if ((minuteParity != bitArray[28]) || (hourParity != bitArray[35]) || (dateParity != bitArray[58]))
     return result::INVALID; // Parity error
 
   return result::SUCCESS;
 }
 
-// Extracts and interprets the date and time from the binary DCF77 string and writes them into a timeStampDCF77 structure.
+// extracts and interprets the date and time from the binary DCF77 string and writes them into a timeStampDCF77 structure
 dcf77::result dcf77::decode(timeStampDCF77 *dcf) {
-  // Decode the bit strings according to the DCF77 specification
+  // decode the bit strings according to the DCF77 specification
   dcf->hour = bitScale(bitArray + 29, 6);
   dcf->minute = bitScale(bitArray + 21, 7);
   dcf->day = bitScale(bitArray + 36, 6);
@@ -414,7 +413,7 @@ dcf77::result dcf77::decode(timeStampDCF77 *dcf) {
     return result::INVALID;
   }
 
-  // Check if day, month, or year have invalid (00) values
+  // check if day, month, or year have invalid (00) values
   if (dcf->day == 0 || dcf->month == 0 || dcf->year == 0 || (dcf->CEST == dcf->CET)) {
 #ifdef SERIALDEBUG
     Serial.println("Decode: Invalid date received.");
@@ -445,7 +444,7 @@ void dcf77::handleInt(bool signalLevel) {
     // end of pause
     lastPulseType = dcfPulseType::START;
     if (pulseLength >= pauseDurationLow && pulseLength <= pauseDurationHigh) lastPulse = dcfPulse::PAUSE;
-    if (pulseLength < pauseDurationLow || pulseLength > pauseDurationHigh) lastPulse = dcfPulse::INVALID;
+    else lastPulse = dcfPulse::NONE;
   }
   else {
     // end of pulse

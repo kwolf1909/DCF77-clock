@@ -16,7 +16,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 11 2026
+//  Date: Oct 12 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -91,7 +91,7 @@ PORT_t* const portButton[] = { &PORTA, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF };
 #ifdef SERIALDEBUG
 char      buffer[40];
 #endif
-bool      syncReq, syncComplete, sens, voltage, buttonPressed;
+bool      syncReq, syncComplete, sens, voltage, buttonPressed, lowBatt;
 uint8_t   timeState, showState, receiveState, syncState, readState, pinBitmaskButton, portIDButton;
 int16_t   temp;
 uint16_t  vcc;
@@ -164,22 +164,20 @@ void setup() {
   // initialize external RTC
   if (rtc.begin()) {
     if (rtc.lostPower()) {
-#ifdef SERIALDEBUG
-      Serial.println("RTC power loss!");
-#endif
-      rtc.adjust(DateTime(2026, 1, 1, 0, 0, 0));
+      alpha.print("RTC PWR ");
     }
-    else timeState = TIME_RTC;
-
+    else {
+      timeState = TIME_RTC;
+      alpha.print("RTC OK  ");
+    }
     rtc.enable32K();
-    alpha.print("RTC OK  ");
-    delay(1000);
   }
   else alpha.print("RTC FAIL");
+  delay(1000);
 #endif
 
-  // use external RTC for 32K clock if available, or use internal 32K clock source
   RTCinit();
+
 #ifdef VOLTAGE
   ADCinit();
 #endif
@@ -194,6 +192,7 @@ void setup() {
   buttonPressed = false;
   sens = false;
   voltage = false;
+  lowBatt = false;
   vcc = voltageLimit;
 }
 
@@ -380,6 +379,52 @@ uint8_t handleTime(uint8_t state) {
 }
 
 //----------------------------------------------------------------------------------
+
+uint8_t handleButton(uint8_t state) {
+  bool button;
+  uint32_t buttonTime;
+  static bool lastLowBatt = false;
+  static uint32_t lastButtonTime = 0L;
+  
+  // read low-active button state
+  button = (portButton[portIDButton]->IN & pinBitmaskButton) ? false : true;
+
+  // debounce
+  if (button) { 
+    buttonTime = millis();
+    if (buttonTime - lastButtonTime > buttonDelay) {
+      buttonPressed = true;
+      lastButtonTime = buttonTime;
+    }
+  }
+  if (buttonPressed) {
+    buttonPressed = false;
+    switch (state) {
+      case SHOW_TIMEDATE:
+        return SHOW_TIMEFULL;
+
+      case SHOW_TIMEFULL:
+        if (sens) return SHOW_TIMETEMP;
+        if (voltage) return SHOW_LOWBATT;
+        return SHOW_TIMEDATE;
+
+      case SHOW_TIMETEMP:
+        if (voltage) return SHOW_LOWBATT;
+        return SHOW_TIMEDATE;
+
+      case SHOW_LOWBATT:
+        return SHOW_TIMEDATE;
+    }
+  }
+  // trigger display voltage only once
+  if (lowBatt && lastLowBatt == false) {
+    lastLowBatt = true;
+    return SHOW_LOWBATT;
+  }
+  return state;
+}
+
+//----------------------------------------------------------------------------------
 #if defined (ONEWIRE) || defined (VOLTAGE)
 uint8_t handleReadTempVcc(uint8_t state) {
 
@@ -426,7 +471,7 @@ uint8_t handleReadTempVcc(uint8_t state) {
 #ifdef VOLTAGE
         vcc = measureVoltage();
         voltage = true;
-        if (vcc > 0 && vcc < voltageLimit) showState = SHOW_LOWBATT;
+        if (vcc > 0 && vcc < voltageLimit) lowBatt = true;
 #ifdef SERIALDEBUG
         sprintf(buffer, "Voltage: %u", vcc);
         Serial.println(buffer);
@@ -439,46 +484,6 @@ uint8_t handleReadTempVcc(uint8_t state) {
   return state;
 }
 #endif
-
-//----------------------------------------------------------------------------------
-
-uint8_t handleButton(uint8_t state) {
-  bool button;
-  uint32_t buttonTime;
-  static uint32_t lastButtonTime = 0L;
-  
-  // read low-active button state
-  button = (portButton[portIDButton]->IN & pinBitmaskButton) ? false : true;
-
-  // debounce
-  if (button) { 
-    buttonTime = millis();
-    if (buttonTime - lastButtonTime > buttonDelay) {
-      buttonPressed = true;
-      lastButtonTime = buttonTime;
-    }
-  }
-  if (buttonPressed) {
-    buttonPressed = false;
-    switch (state) {
-      case SHOW_TIMEDATE:
-        return SHOW_TIMEFULL;
-
-      case SHOW_TIMEFULL:
-        if (sens) return SHOW_TIMETEMP;
-        if (voltage) return SHOW_LOWBATT;
-        return SHOW_TIMEDATE;
-
-      case SHOW_TIMETEMP:
-        if (voltage) return SHOW_LOWBATT;
-        return SHOW_TIMEDATE;
-
-      case SHOW_LOWBATT:
-        return SHOW_TIMEDATE;
-    }
-  }
-  return state;
-}
 
 //----------------------------------------------------------------------------------
 
@@ -622,7 +627,7 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 
 void RTCinit(void) {
 
-  // enable external 32K clock when external RTC available
+  // enable external 32K clock for internal RTC-timer when external RTC available
 #if defined(__AVR_ATtiny1614__) && defined(RTCEXT)
   uint8_t temp = CLKCTRL.XOSC32KCTRLA & ~CLKCTRL_ENABLE_bm;
   CPU_CCP = CCP_IOREG_gc;
@@ -645,6 +650,7 @@ void RTCinit(void) {
   RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
 #endif
 
+  // enable 2 Hz periodic interrupt
   while (RTC.PITSTATUS > 0);
   RTC.PITCTRLA = RTC_PERIOD_CYC16384_gc | RTC_PITEN_bm;
   while (RTC.PITSTATUS > 0);
