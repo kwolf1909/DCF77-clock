@@ -41,4 +41,17 @@ DFRobot 7-segment 8-digit display: https://www.dfrobot.com/product-1978.html<br>
 Custom built alphanumeric display: http://www.technoblogy.com/show?2ULE<br>
 Alphanumeric displays used on board: https://www.adafruit.com/product/2154
 
-<img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" />
+<img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" /><br>
+
+This is a debug-output for a complete receiving-cycle as an example.
+```
+DCF: Minute marker detected
+DCF: Startbit detected, receiving now...
+0000000000000000100100000000100010000010000100001011001000
+DCF: Receive complete
+Receive: Receive complete
+Receive: Decode successful
+Receive: RTC synced to DCF-time 17:51:00
+```
+
+
