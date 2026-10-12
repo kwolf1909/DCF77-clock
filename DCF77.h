@@ -213,8 +213,11 @@ void dcf77::handle(void) {
       break;
 
     case dcfState::STARTBITCOMPL:
-      if (lastPulseType == dcfPulseType::END) {
-        if (lastPulse == dcfPulse::BIT0) {
+//    if (lastPulseType == dcfPulseType::END) {
+//      if (lastPulse == dcfPulse::BIT0) {
+      if (lastPulseType == dcfPulseType::START) {
+        if (lastPulse == dcfPulse::PAUSE) {
+
 #ifdef SERIALDEBUG
           Serial.println("\r\nDCF: Receive complete");
 #endif
