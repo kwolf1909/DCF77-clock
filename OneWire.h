@@ -1,14 +1,6 @@
 // OneWire object, includes DS18B20 temperature reading
 
-#if defined (__AVR_ATtiny412__)
-PORT_t* const portOW[] = { &PORTA };
-#endif
-#if defined (__AVR_ATtiny1614__)
-PORT_t* const portOW[] = { &PORTA, &PORTB };
-#endif
-#if defined (__AVR_ATmega4809__)
-PORT_t* const portOW[] = { &PORTA, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF };
-#endif
+#include "Ports.h"
 
 #define TEMP_ERROR -1000
 
@@ -57,7 +49,7 @@ OneWire::OneWire(uint8_t pin) {
 void OneWire::setup(void) {
 
   if (portID == NOT_A_PORT) return;
-  portOW[portID]->DIRCLR = pinBitmask;
+  port[portID]->DIRCLR = pinBitmask;
   
   TCB0.CNT = 0;
   TCB0.CCMP = 0xFFFF;
@@ -78,16 +70,16 @@ inline void OneWire::delayMicros(uint16_t micro) {
 }
 
 inline void OneWire::pinLow() {
-  portOW[portID]->DIRSET = pinBitmask;
-  portOW[portID]->OUTCLR = pinBitmask;
+  port[portID]->DIRSET = pinBitmask;
+  port[portID]->OUTCLR = pinBitmask;
 }
 
 inline void OneWire::pinRelease() {
-  portOW[portID]->DIRCLR = pinBitmask;
+  port[portID]->DIRCLR = pinBitmask;
 }
 
 inline uint8_t OneWire::pinRead () {
-  return (portOW[portID]->IN & pinBitmask) ? 1 : 0;
+  return (port[portID]->IN & pinBitmask) ? 1 : 0;
 }
 
 void OneWire::lowRelease(uint16_t low, uint16_t high) {

@@ -1,6 +1,6 @@
 // DCF77 receiving object - interface to all DCF-functions and interrupt-handler
 
-#include <avr/io.h>
+#include "Ports.h"
 
 const uint16_t timerFreq = F_CPU / 1024;                      // prescaler = 1024
 const uint16_t timerCmpMatch = timerFreq / 1000 * 2500;       // 2500 ms
@@ -15,16 +15,6 @@ const uint16_t pauseDurationHigh = timerFreq / 1000 * 2200;   // 2200 ms
 
 #define DCF_SIZE          59
 #define NOSIGNAL_COUNTER  10
-
-#if defined (__AVR_ATtiny412__)
-PORT_t* const portsDcf[] = { &PORTA };
-#endif
-#if defined (__AVR_ATtiny1614__)
-PORT_t* const portsDcf[] = { &PORTA, &PORTB };
-#endif
-#if defined (__AVR_ATmega4809__)
-PORT_t* const portsDcf[] = { &PORTA, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF };
-#endif
 
 struct timeStampDCF77
 {
@@ -48,7 +38,7 @@ class dcf77 {
     enum class dcfPulse { NONE = 1, PAUSE, BIT0, BIT1, INVALID };
     enum class dcfPulseType { START = 1, END };
     enum class dcfSignal { WAIT = 1, GOOD, NOSIGNAL };
-    uint8_t pinBitmaskDcf, pinBitmaskLed, portID;
+    uint8_t pinBitmaskDcf, pinBitmaskLed, portIdLed;
 
     dcf77();
     void begin(uint8_t, uint8_t);
@@ -110,15 +100,15 @@ dcf77::dcf77() {
 void dcf77::begin(uint8_t pin1, uint8_t pin2) {
   pinBitmaskDcf = digitalPinToBitMask(pin1);
   pinBitmaskLed = digitalPinToBitMask(pin2);
-  portID = digitalPinToPort(pin2);
+  portIdLed = digitalPinToPort(pin2);
 
   // DCF signal input with pullup
   register8_t *pinCtrlReg = &PORTA.PIN0CTRL + digitalPinToBitPosition(pin1);
   *pinCtrlReg = PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc;
 
 #ifdef LED
-  portsDcf[portID]->DIRSET = pinBitmaskLed;
-  portsDcf[portID]->OUTCLR = pinBitmaskLed;
+  port[portIdLed]->DIRSET = pinBitmaskLed;
+  port[portIdLed]->OUTCLR = pinBitmaskLed;
 #endif
   timerSetup();
 }
@@ -131,8 +121,10 @@ void dcf77::handle(void) {
   if (noSignalTimeout) {
     noSignalTimeout = false;
     signalStatus = dcfSignal::NOSIGNAL;
+    restartMarker = true;
+    state = dcfState::IDLE;
+    return;
   }
-  
   if (pulseReceivedDcf == false) return;
   pulseReceivedDcf = false;
   pulseReceivedAnim = true;
@@ -207,14 +199,13 @@ void dcf77::handle(void) {
 #ifdef SERIALDEBUG
           Serial.println("\r\nDCF: Receive signal error");
 #endif
+          restartMarker = true;
           state = dcfState::IDLE;
         }
       }
       break;
 
     case dcfState::STARTBITCOMPL:
-//    if (lastPulseType == dcfPulseType::END) {
-//      if (lastPulse == dcfPulse::BIT0) {
       if (lastPulseType == dcfPulseType::START) {
         if (lastPulse == dcfPulse::PAUSE) {
 
@@ -233,17 +224,10 @@ void dcf77::handle(void) {
       break;
 
     case dcfState::RECEIVING:
-      if (noSignalMarker) {
-        noSignalMarker = false;
-        restartMarker = true;
-        state = dcfState::IDLE;
-        break;
-      }
       if (lastPulseType == dcfPulseType::END) {
         if (lastPulse == dcfPulse::BIT0 || lastPulse == dcfPulse::BIT1) {
           dcfPos++;
           bitArray[dcfPos] = (lastPulse == dcfPulse::BIT0) ? 0 : 1;
-          signalStatus = dcfSignal::GOOD;
           receiveBit = true;
 #ifdef SERIALDEBUG
           if (bitArray[dcfPos]) Serial.print("1"); else Serial.print("0");
@@ -437,9 +421,9 @@ void dcf77::handleInt(bool signalLevel) {
 
 #ifdef LED
   if (signalLevel)
-    portsDcf[portID]->OUTCLR = pinBitmaskLed;
+    port[portIdLed]->OUTCLR = pinBitmaskLed;
   else {
-    if (getRequestState()) portsDcf[portID]->OUTSET = pinBitmaskLed;
+    if (getRequestState()) port[portIdLed]->OUTSET = pinBitmaskLed;
   }
 #endif
 

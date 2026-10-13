@@ -16,7 +16,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 12 2026
+//  Date: Oct 13 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -61,10 +61,11 @@
 
 #include "AlphaDisplay.h"
 #include "DCF77.h"
+#include "Ports.h"
 
 #define DISPLAY_ADDRESS         0x70
 #define DISPLAY_DIGITS          8
-#define DISPLAY_BRIGHTNESS      4
+#define DISPLAY_BRIGHTNESS      8
 #define ONEWIRE_RESOLUTION      11
 
 #ifdef MILLIS_USE_TIMERA0
@@ -78,21 +79,11 @@ const uint32_t  syncDelay = 30 * 60 * 1000L;
 const uint32_t  tempDelay = 20 * 1000L;
 const uint32_t  buttonDelay = 500L;
 
-#if defined (__AVR_ATtiny412__)
-PORT_t* const portButton[] = { &PORTA };
-#endif
-#if defined (__AVR_ATtiny1614__)
-PORT_t* const portButton[] = { &PORTA, &PORTB };
-#endif
-#if defined (__AVR_ATmega4809__)
-PORT_t* const portButton[] = { &PORTA, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF };
-#endif
-
 #ifdef SERIALDEBUG
 char      buffer[40];
 #endif
 bool      syncReq, syncComplete, sens, voltage, buttonPressed, lowBatt;
-uint8_t   timeState, showState, receiveState, syncState, readState, pinBitmaskButton, portIDButton;
+uint8_t   timeState, showState, receiveState, syncState, readState, pinBitmaskButton, portIdButton;
 int16_t   temp;
 uint16_t  vcc;
 volatile bool tickTock;
@@ -126,7 +117,7 @@ void setup() {
   Serial.begin(115200, SERIAL_TX_ONLY);
 #endif
 #if defined(__AVR_ATmega4809__)
-  Serial.begin(115200); // PA0(TX)
+  Serial.begin(115200);
 #endif
   Serial.println("\r\nInit...");
   sprintf(buffer, "F_CPU=%lu", F_CPU);
@@ -145,9 +136,9 @@ void setup() {
 
   // enable button input pin with pullup (active low)
   pinBitmaskButton = digitalPinToBitMask(BUTTON_PIN);
-  portIDButton = digitalPinToPort(BUTTON_PIN);
-  portButton[portIDButton]->DIRCLR = pinBitmaskButton;
-  register8_t *pinCtrlReg = &(portButton[portIDButton]->PIN0CTRL) + digitalPinToBitPosition(BUTTON_PIN);
+  portIdButton = digitalPinToPort(BUTTON_PIN);
+  port[portIdButton]->DIRCLR = pinBitmaskButton;
+  register8_t *pinCtrlReg = &(port[portIdButton]->PIN0CTRL) + digitalPinToBitPosition(BUTTON_PIN);
   *pinCtrlReg = PORT_PULLUPEN_bm;
 
 #ifdef ONEWIRE
@@ -387,7 +378,7 @@ uint8_t handleButton(uint8_t state) {
   static uint32_t lastButtonTime = 0L;
   
   // read low-active button state
-  button = (portButton[portIDButton]->IN & pinBitmaskButton) ? false : true;
+  button = (port[portIdButton]->IN & pinBitmaskButton) ? false : true;
 
   // debounce
   if (button) { 
@@ -493,7 +484,7 @@ void showSync(uint8_t mode) {
   uint8_t posRev;
   dcf77::dcfPulse pulse;
   dcf77::dcfPulseType pulseType;
-  static dcf77::dcfPulse lastPulse;
+  static dcf77::dcfPulse lastPulse = dcf77::dcfPulse::NONE;
 
   switch (mode) {
     // show receive bits during wait for minute marker
@@ -525,14 +516,13 @@ void showSync(uint8_t mode) {
       break;
 
     case SHOWSYNC_WAITSIGNAL:
-      lastPulse = dcf77::dcfPulse::NONE;
       strcpy(buffer, "WAIT    ");
       break;
 
     case SHOWSYNC_NOSIGNAL:
       strcpy(buffer, "NOSIGNAL");
   }
-  buffer[8] = 0;
+  buffer[DISPLAY_DIGITS] = 0;
   alpha.print(buffer);
 }
 
@@ -546,7 +536,7 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
   buffer[1] = ('0' + hr % 10) | (dot ? DOT : 0);
   buffer[2] = '0' + min / 10;
   buffer[3] = ('0' + min % 10) | (sync ? DOT : 0);
-  buffer[8] = 0;
+  buffer[DISPLAY_DIGITS] = 0;
   
   switch (mode) {
     case SHOW_TIMEDATE:
