@@ -57,7 +57,7 @@
 #define ONEWIRE_PIN             16  // PD1
 #endif
 
-//#define SERIALDEBUG
+#define SERIALDEBUG
 
 #include "AlphaDisplay.h"
 #include "DCF77.h"
@@ -65,7 +65,7 @@
 
 #define DISPLAY_ADDRESS         0x70
 #define DISPLAY_DIGITS          8
-#define DISPLAY_BRIGHTNESS      8
+#define DISPLAY_BRIGHTNESS      4
 #define ONEWIRE_RESOLUTION      11
 
 #ifdef MILLIS_USE_TIMERA0
@@ -82,7 +82,7 @@ const uint32_t  buttonDelay = 500L;
 #ifdef SERIALDEBUG
 char      buffer[40];
 #endif
-bool      syncReq, syncComplete, sens, voltage, buttonPressed, lowBatt;
+bool      syncReq, syncComplete, sens, voltage, buttonPressed, lowBatt, rtcOk;
 uint8_t   timeState, showState, receiveState, syncState, readState, pinBitmaskButton, portIdButton;
 int16_t   temp;
 uint16_t  vcc;
@@ -162,8 +162,12 @@ void setup() {
       alpha.print("RTC OK  ");
     }
     rtc.enable32K();
+    rtcOk = true;
   }
-  else alpha.print("RTC FAIL");
+  else {
+    alpha.print("RTC FAIL");
+    rtcOk = false;
+  }
   delay(1000);
 #endif
 
@@ -619,21 +623,28 @@ void RTCinit(void) {
 
   // enable external 32K clock for internal RTC-timer when external RTC available
 #if defined(__AVR_ATtiny1614__) && defined(RTCEXT)
-  uint8_t temp = CLKCTRL.XOSC32KCTRLA & ~CLKCTRL_ENABLE_bm;
-  CPU_CCP = CCP_IOREG_gc;
-  CLKCTRL.XOSC32KCTRLA = temp;
-  while (CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm);
+  if (rtcOk) {
+    uint8_t temp = CLKCTRL.XOSC32KCTRLA & ~CLKCTRL_ENABLE_bm;
+    CPU_CCP = CCP_IOREG_gc;
+    CLKCTRL.XOSC32KCTRLA = temp;
+    while (CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm);
 
-  temp = CLKCTRL.XOSC32KCTRLA | CLKCTRL_SEL_bm;
-  CPU_CCP = CCP_IOREG_gc;
-  CLKCTRL.XOSC32KCTRLA = temp;
+    temp = CLKCTRL.XOSC32KCTRLA | CLKCTRL_SEL_bm;
+    CPU_CCP = CCP_IOREG_gc;
+    CLKCTRL.XOSC32KCTRLA = temp;
 
-  temp = CLKCTRL.XOSC32KCTRLA | CLKCTRL_ENABLE_bm;
-  CPU_CCP = CCP_IOREG_gc;
-  CLKCTRL.XOSC32KCTRLA = temp;
+    temp = CLKCTRL.XOSC32KCTRLA | CLKCTRL_ENABLE_bm;
+    CPU_CCP = CCP_IOREG_gc;
+    CLKCTRL.XOSC32KCTRLA = temp;
 
-  while (RTC.STATUS > 0);
-  RTC.CLKSEL = RTC_CLKSEL_TOSC32K_gc;
+    while (RTC.STATUS > 0);
+    RTC.CLKSEL = RTC_CLKSEL_TOSC32K_gc;
+  }
+  else {
+    // use internal 32K clock source if RTC not available
+    while (RTC.STATUS > 0);
+    RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
+  }
 #else
   // use internal 32K clock source
   while (RTC.STATUS > 0);
