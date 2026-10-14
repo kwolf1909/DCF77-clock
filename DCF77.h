@@ -9,7 +9,7 @@ const uint16_t bit0MinDuration = timerFreq / 1000 * 20;       // 20 ms
 const uint16_t bit0DurationLow = timerFreq / 1000 * 70;       // 70 ms
 const uint16_t bit0DurationHigh = timerFreq / 1000 * 150;     // 150 ms
 const uint16_t bit1DurationLow = timerFreq / 1000 * 170;      // 170 ms
-const uint16_t bit1DurationHigh = timerFreq / 1000 * 250;     // 250 ms
+const uint16_t bit1DurationHigh = timerFreq / 1000 * 300;     // 300 ms
 const uint16_t pauseDurationLow = timerFreq / 1000 * 1400;    // 1400 ms
 const uint16_t pauseDurationHigh = timerFreq / 1000 * 2200;   // 2200 ms
 
@@ -206,8 +206,10 @@ void dcf77::handle(void) {
       break;
 
     case dcfState::STARTBITCOMPL:
-      if (lastPulseType == dcfPulseType::START) {
-        if (lastPulse == dcfPulse::PAUSE) {
+      if (lastPulseType == dcfPulseType::END) {
+        if (lastPulse == dcfPulse::BIT0) {
+//    if (lastPulseType == dcfPulseType::START) {
+//      if (lastPulse == dcfPulse::PAUSE) {
 
 #ifdef SERIALDEBUG
           Serial.println("\r\nDCF: Receive complete");
@@ -250,6 +252,7 @@ void dcf77::handle(void) {
 }
 
 void dcf77::timerSetup(void) {
+  cli();
   TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc;
   TCA0.SINGLE.CTRLD = 0;
   TCA0.SINGLE.CTRLECLR = TCA_SINGLE_DIR_bm;
@@ -257,6 +260,7 @@ void dcf77::timerSetup(void) {
   TCA0.SINGLE.PER = timerTop;
   TCA0.SINGLE.INTCTRL = TCA_SINGLE_CMP0EN_bm;
   TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1024_gc | TCA_SINGLE_ENABLE_bm;
+  sei();
 }
 
 void dcf77::request(void) {
