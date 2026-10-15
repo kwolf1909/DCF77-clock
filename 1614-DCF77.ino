@@ -58,7 +58,7 @@
 #define ONEWIRE_PIN             16  // PD1
 #endif
 
-#define SERIALDEBUG
+//#define SERIALDEBUG
 
 #include "AlphaDisplay.h"
 #include "DCF77.h"
