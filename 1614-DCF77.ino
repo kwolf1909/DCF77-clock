@@ -10,13 +10,11 @@
 //  Time with date, time with seconds, time with temperature, time with battery voltage
 //
 //  MCU-clock: 8 MHz (recommended)
-//  Timers used: TCA0 (DCF pulse width measurement),
-//               TCB0 (OneWire timing)
-//               TCB3/TCD0 (millis), RTC (2 Hz generation via interrupt)
+//  Timers used: TCB0 (DCF pulse width measurement), RTC (2 Hz generation for clock ticks)
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 13 2026
+//  Date: Oct 15 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -24,6 +22,7 @@
 #include "DateTime.h"
 #define TINYWIRE
 #define LED
+#define BUTTON
 #define DCF_PIN                 4   // PA3
 #define LED_PIN                 0   // PA6
 #define BUTTON_PIN              1   // PA7
@@ -37,6 +36,7 @@
 #define VOLTAGE
 #define SEG14
 #define LED
+#define BUTTON
 #define DCF_PIN                 10  // PA3
 #define LED_PIN                 1   // PA5
 #define BUTTON_PIN              3   // PA7
@@ -51,6 +51,7 @@
 //#define VOLTAGE
 #define SEG14
 #define LED
+#define BUTTON
 #define DCF_PIN                 2   // PA0
 #define LED_PIN                 13  // PE2
 #define BUTTON_PIN              17  // PD0
@@ -68,15 +69,10 @@
 #define DISPLAY_BRIGHTNESS      4
 #define ONEWIRE_RESOLUTION      11
 
-#ifdef MILLIS_USE_TIMERA0
-#error "This sketch takes over TCA0 - please use a different timer for millis"
-#endif
-
 const bool      syncAfterStart = true;
 const uint8_t   readDelay = 10;
 const uint16_t  voltageLimit = 3000;
-const uint32_t  syncDelay = 30 * 60 * 1000L;
-const uint32_t  tempDelay = 20 * 1000L;
+const uint16_t  newSyncSeconds = 30 * 60;
 const uint32_t  buttonDelay = 500L;
 
 #ifdef SERIALDEBUG
@@ -134,12 +130,14 @@ void setup() {
   alpha.print("INIT");
   delay(1000);
 
+#ifdef BUTTON
   // enable button input pin with pullup (active low)
   pinBitmaskButton = digitalPinToBitMask(BUTTON_PIN);
   portIdButton = digitalPinToPort(BUTTON_PIN);
   port[portIdButton]->DIRCLR = pinBitmaskButton;
   register8_t *pinCtrlReg = &(port[portIdButton]->PIN0CTRL) + digitalPinToBitPosition(BUTTON_PIN);
   *pinCtrlReg = PORT_PULLUPEN_bm;
+#endif
 
 #ifdef ONEWIRE
   ow.setup();
@@ -207,14 +205,16 @@ void loop() {
   // state machine for time and display handling
   timeState = handleTime(timeState);
 
+#ifdef BUTTON
   // switching display modes
   showState = handleButton(showState);
+#endif
 
 #if defined (ONEWIRE) || defined (VOLTAGE)
   // handle temp and voltage reading
   readState = handleReadTempVcc(readState);
 #endif
-  delay(10);
+  delay(2);
 }
 
 //----------------------------------------------------------------------------------
@@ -267,13 +267,14 @@ uint8_t handleAnimation(uint8_t state) {
 //----------------------------------------------------------------------------------
 
 uint8_t handleReceive(uint8_t state) {
-
-  static uint32_t lastSyncTime;
-
+  bool tt = tickTock;
+  static bool prevtt = false;
+  static uint16_t newSyncCounter;
+    
   switch (state) {
     case RECEIVE_INIT:
-      lastSyncTime = millis();
-      syncComplete = false;
+      newSyncCounter = 0;
+      syncReq = false;
       return RECEIVE_IDLE;
 
     case RECEIVE_IDLE:
@@ -286,7 +287,11 @@ uint8_t handleReceive(uint8_t state) {
         dcf.request();
         return RECEIVE_RECEIVING;
       }
-      if (millis() - lastSyncTime > syncDelay && dt.second() == 50) syncReq = true;
+      if (prevtt != tt) {
+        newSyncCounter++;
+        prevtt = tt;
+      }
+      if (newSyncCounter > newSyncSeconds && dt.second() == 50) syncReq = true;
       break;
 
     case RECEIVE_RECEIVING:
@@ -318,7 +323,7 @@ uint8_t handleReceive(uint8_t state) {
 
         // job done
         syncComplete = true;
-        lastSyncTime = millis();
+        newSyncCounter = 0;
         return RECEIVE_IDLE;
       }
       else {
@@ -375,21 +380,24 @@ uint8_t handleTime(uint8_t state) {
 
 //----------------------------------------------------------------------------------
 
+#ifdef BUTTON
 uint8_t handleButton(uint8_t state) {
   bool button;
-  uint32_t buttonTime;
   static bool lastLowBatt = false;
-  static uint32_t lastButtonTime = 0L;
+  static bool stableState = false;
+  static uint8_t confidenceCounter = 0;
+  static uint8_t stableThreshold = 50;
   
   // read low-active button state
   button = (port[portIdButton]->IN & pinBitmaskButton) ? false : true;
 
   // debounce
-  if (button) { 
-    buttonTime = millis();
-    if (buttonTime - lastButtonTime > buttonDelay) {
-      buttonPressed = true;
-      lastButtonTime = buttonTime;
+  if (button == stableState) confidenceCounter = 0;
+  else {
+    confidenceCounter++;
+    if (confidenceCounter >= stableThreshold) {
+      stableState = button;
+      if (stableState == true) buttonPressed = true;
     }
   }
   if (buttonPressed) {
@@ -418,6 +426,7 @@ uint8_t handleButton(uint8_t state) {
   }
   return state;
 }
+#endif
 
 //----------------------------------------------------------------------------------
 #if defined (ONEWIRE) || defined (VOLTAGE)
@@ -714,9 +723,8 @@ ISR(PORTA_PORT_vect) {
   }
 }
 
-// on timer compare match, no DCF-signal is received, increase no-signal counter
-ISR(TCA0_CMP0_vect) {
-  TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm;
-  TCA0.SINGLE.CNT = 0;
-  dcf.noSignal();
+// the TCB0-timer interrupt is called every 5 ms
+ISR(TCB0_INT_vect) {
+  TCB0.INTFLAGS = TCB_CAPT_bm;
+  dcf.timerTicks++;
 }

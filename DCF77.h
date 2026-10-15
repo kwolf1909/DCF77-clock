@@ -2,16 +2,14 @@
 
 #include "Ports.h"
 
-const uint16_t timerFreq = F_CPU / 1024;                      // prescaler = 1024
-const uint16_t timerCmpMatch = timerFreq / 1000 * 2500;       // 2500 ms
-const uint16_t timerTop = 65535;
-const uint16_t bit0MinDuration = timerFreq / 1000 * 20;       // 20 ms
-const uint16_t bit0DurationLow = timerFreq / 1000 * 70;       // 70 ms
-const uint16_t bit0DurationHigh = timerFreq / 1000 * 150;     // 150 ms
-const uint16_t bit1DurationLow = timerFreq / 1000 * 170;      // 170 ms
-const uint16_t bit1DurationHigh = timerFreq / 1000 * 300;     // 300 ms
-const uint16_t pauseDurationLow = timerFreq / 1000 * 1400;    // 1400 ms
-const uint16_t pauseDurationHigh = timerFreq / 1000 * 2200;   // 2200 ms
+const uint16_t timerFreq = 200;                                 // 1 / 0.005s
+const uint16_t bit0MinDuration = (timerFreq * 2) / 100;         // 20 ms
+const uint16_t bit0DurationLow = (timerFreq * 7) / 100;         // 70 ms
+const uint16_t bit0DurationHigh = (timerFreq * 15) / 100;       // 150 ms
+const uint16_t bit1DurationLow = (timerFreq * 17) / 100;        // 170 ms
+const uint16_t bit1DurationHigh = (timerFreq * 25) / 100;       // 250 ms
+const uint16_t pauseDurationLow = (timerFreq * 150) / 100;      // 1500 ms
+const uint16_t pauseDurationHigh = (timerFreq * 220) / 100;     // 2200 ms
 
 #define DCF_SIZE          59
 #define NOSIGNAL_COUNTER  10
@@ -38,7 +36,9 @@ class dcf77 {
     enum class dcfPulse { NONE = 1, PAUSE, BIT0, BIT1, INVALID };
     enum class dcfPulseType { START = 1, END };
     enum class dcfSignal { WAIT = 1, GOOD, NOSIGNAL };
-    uint8_t pinBitmaskDcf, pinBitmaskLed, portIdLed;
+    bool pulseReceivedAnim, noSignalMarker;
+    uint8_t pinBitmaskDcf, pinBitmaskLed, portIdLed, noSignalCounter;
+    volatile uint16_t timerTicks;
 
     dcf77();
     void begin(uint8_t, uint8_t);
@@ -52,13 +52,13 @@ class dcf77 {
     dcf77::dcfPulse getLastPulse();
     dcf77::dcfPulseType getLastPulseType();
     uint16_t getLastPulseLength();
+    bool checkSignal();
     bool checkPulseReceived();
     bool checkComplete();
     bool checkStartBit();
     bool checkMinuteMarker();
     bool checkReceiveBit();
     bool checkRestart();
-    void noSignal();
     dcf77::dcfSignal getSignalStatus();
     dcf77::result decode(timeStampDCF77 *);
     void handleInt(bool);
@@ -73,7 +73,7 @@ class dcf77 {
     dcf77::result checkParity();
     uint8_t bitScale(uint8_t *, uint8_t);
 
-    volatile bool pulseReceivedDcf, pulseReceivedAnim, noSignalMarker, noSignalTimeout;
+    volatile bool pulseReceivedDcf;
     volatile uint16_t lastPulseLength;
     volatile dcf77::dcfPulse lastPulse;
     volatile dcf77::dcfPulseType lastPulseType;
@@ -87,11 +87,9 @@ dcf77::dcf77() {
   dcfComplete = false;
   minuteMarker = false;
   restartMarker = false;
-  noSignalMarker = false;
-  noSignalTimeout = false;
   startBit = false;
   signalStatus = dcfSignal::WAIT;
-  noSignalCnt = 0;
+  noSignalCounter = 0;
   validPulses = 0;
   lastPulse = dcfPulse::NONE;
   lastPulseType = dcfPulseType::START;
@@ -118,13 +116,7 @@ void dcf77::handle(void) {
 #ifdef SERIALDEBUG
   char buffer[40];
 #endif
-  if (noSignalTimeout) {
-    noSignalTimeout = false;
-    signalStatus = dcfSignal::NOSIGNAL;
-    restartMarker = true;
-    state = dcfState::IDLE;
-    return;
-  }
+  if (checkSignal() == false) return;
   if (pulseReceivedDcf == false) return;
   pulseReceivedDcf = false;
   pulseReceivedAnim = true;
@@ -206,10 +198,10 @@ void dcf77::handle(void) {
       break;
 
     case dcfState::STARTBITCOMPL:
-      if (lastPulseType == dcfPulseType::END) {
-        if (lastPulse == dcfPulse::BIT0) {
-//    if (lastPulseType == dcfPulseType::START) {
-//      if (lastPulse == dcfPulse::PAUSE) {
+//    if (lastPulseType == dcfPulseType::END) {
+//      if (lastPulse == dcfPulse::BIT0) {
+      if (lastPulseType == dcfPulseType::START) {
+        if (lastPulse == dcfPulse::PAUSE) {
 
 #ifdef SERIALDEBUG
           Serial.println("\r\nDCF: Receive complete");
@@ -253,13 +245,14 @@ void dcf77::handle(void) {
 
 void dcf77::timerSetup(void) {
   cli();
-  TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc;
-  TCA0.SINGLE.CTRLD = 0;
-  TCA0.SINGLE.CTRLECLR = TCA_SINGLE_DIR_bm;
-  TCA0.SINGLE.CMP0 = timerCmpMatch;
-  TCA0.SINGLE.PER = timerTop;
-  TCA0.SINGLE.INTCTRL = TCA_SINGLE_CMP0EN_bm;
-  TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1024_gc | TCA_SINGLE_ENABLE_bm;
+  // use TCB0 in periodic interrupt mode (5 ms)
+  TCB0.CTRLA = 0x00;
+  TCB0.CTRLB = TCB_CNTMODE_INT_gc;
+  TCB0.CCMP = (F_CPU / 400) - 1;
+  TCB0.INTCTRL = TCB_CAPT_bm;
+    
+  // start timer with CLK_PER/2
+  TCB0.CTRLA = TCB_CLKSEL_CLKDIV2_gc | TCB_ENABLE_bm;
   sei();
 }
 
@@ -309,6 +302,27 @@ dcf77::dcfSignal dcf77::getSignalStatus(void) {
   return signalStatus;
 }
 
+bool dcf77::checkSignal(void) {
+  if (noSignalCounter >= NOSIGNAL_COUNTER) {
+#ifdef SERIALDEBUG
+    Serial.println("DCF: No signal");
+#endif
+    signalStatus = dcfSignal::NOSIGNAL;
+    restartMarker = true;
+    noSignalCounter = 0;
+    return false;
+  }
+  if (timerTicks > pauseDurationHigh) {
+#ifdef SERIALDEBUG
+    Serial.println("DCF: timerTicks > pauseDurationHigh");
+#endif
+    timerTicks = 0;
+    noSignalCounter++;
+    return false;
+  }
+  return true;
+}
+
 bool dcf77::checkPulseReceived(void) {
   bool pr = pulseReceivedAnim;
   pulseReceivedAnim = false;
@@ -341,15 +355,6 @@ bool dcf77::checkRestart(void) {
   bool rs = restartMarker;
   restartMarker = false;
   return rs;
-}
-
-void dcf77::noSignal(void) {
-  if (noSignalCnt++ >= NOSIGNAL_COUNTER) {
-    noSignalCnt = 0;
-    noSignalTimeout = true;
-  }
-  noSignalMarker = true;
-  return;
 }
 
 uint8_t dcf77::bitScale(uint8_t *bitstring, uint8_t len) {
@@ -414,12 +419,13 @@ dcf77::result dcf77::decode(timeStampDCF77 *dcf) {
   return result::SUCCESS;
 }
 
-// interrupt handler / signal detection
+// interrupt handler for pin change interrupt / signal detection
 void dcf77::handleInt(bool signalLevel) {
 
-  uint16_t pulseLength = TCA0.SINGLE.CNT;
-  TCA0.SINGLE.CNT = 0;
-  
+  uint16_t pulseLength = timerTicks;
+
+  timerTicks = 0;
+
   // filter noise
   if (pulseLength < bit0MinDuration) return;
 
@@ -431,11 +437,11 @@ void dcf77::handleInt(bool signalLevel) {
   }
 #endif
 
+  lastPulse = dcfPulse::NONE;
   if (signalLevel == false) {
     // end of pause
     lastPulseType = dcfPulseType::START;
     if (pulseLength >= pauseDurationLow && pulseLength <= pauseDurationHigh) lastPulse = dcfPulse::PAUSE;
-    else lastPulse = dcfPulse::NONE;
   }
   else {
     // end of pulse
@@ -446,6 +452,5 @@ void dcf77::handleInt(bool signalLevel) {
   }
   lastPulseLength = pulseLength;
   pulseReceivedDcf = true;
-  noSignalMarker = false;
   return;
 }

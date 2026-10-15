@@ -31,8 +31,7 @@ class OneWire {
     const uint8_t res12bit = 0x7F;
     enum class timing { RESETLOW = 480, RESETREL = 70, RESETDELAY = 410, READLOW = 6, READREL = 9, READDELAY = 55,
                         WRITE0LOW = 60, WRITE0REL = 10, WRITE1LOW = 6, WRITE1REL = 64 };
-    
-    inline void delayMicros(uint16_t);
+
     inline void pinLow();
     inline void pinRelease();
     inline uint8_t pinRead();
@@ -50,23 +49,6 @@ void OneWire::setup(void) {
 
   if (portID == NOT_A_PORT) return;
   port[portID]->DIRCLR = pinBitmask;
-  
-  TCB0.CNT = 0;
-  TCB0.CCMP = 0xFFFF;
-
-  // Enable timer with CLK_PER/2 as source in periodic interrupt mode
-  TCB0.CTRLB = TCB_CNTMODE_INT_gc;
-  TCB0.CTRLA = TCB_CLKSEL_CLKDIV2_gc | TCB_ENABLE_bm;
-  //TCB0.INTCTRL = TCB_CAPT_bm;
-}
-
-inline void OneWire::delayMicros(uint16_t micro) {
-  const uint16_t factor = F_CPU / 2000000;
-  
-  TCB0.CCMP = (micro - 4) * factor;    // F_PER / 2, substract 4µs for register setup time
-  TCB0.CNT = 0;
-  TCB0.INTFLAGS = TCB_CAPT_bm;
-  while (!(TCB0.INTFLAGS & TCB_CAPT_bm));
 }
 
 inline void OneWire::pinLow() {
@@ -84,9 +66,9 @@ inline uint8_t OneWire::pinRead () {
 
 void OneWire::lowRelease(uint16_t low, uint16_t high) {
   pinLow();
-  delayMicros(low);
+  delayMicroseconds(low);
   pinRelease();
-  delayMicros(high);
+  delayMicroseconds(high);
 }
 
 // bus reset, returns 0 if device is present
@@ -95,7 +77,7 @@ uint8_t OneWire::reset() {
 
   lowRelease((uint16_t)timing::RESETLOW, (uint8_t)timing::RESETREL);
   data = pinRead();
-  delayMicros((uint16_t)timing::RESETDELAY);
+  delayMicroseconds((uint16_t)timing::RESETDELAY);
   return data;
 }
 
@@ -112,7 +94,7 @@ uint8_t OneWire::read() {
   for (uint8_t i = 0; i < 8; i++) {
     lowRelease((uint16_t)timing::READLOW, (uint16_t)timing::READREL);
     data = data | pinRead() << i;
-    delayMicros((uint16_t)timing::READDELAY);
+    delayMicroseconds((uint16_t)timing::READDELAY);
   }
   return data;
 }
