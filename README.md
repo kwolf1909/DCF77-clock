@@ -2,7 +2,7 @@ This program receives the european DCF77 time signal and syncs it with the
 external RTC-clock. It is displayed on a 8-digit 14- or 7-segment display
 with display-controller HT16K33.
 The MCU used is an ATtiny1614 or an ATmega4809 (Arduino Nano Every). Without external RTC, serial debugging and OneWire, an ATtiny412 can be
-used (99 % of flash space used). With some small modifications, the newer AVR-series like the AVR32DA28 could be used as well.
+used (98 % of flash space used). With some small modifications, the newer AVR-series like the AVR32DA28 could be used as well.
 The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V, the voltage is displayed as a low voltage indicator.
 A sync to DCF-time is performed in the background every 30 minutes, and immediately
 after power-up.
@@ -14,7 +14,7 @@ Push-button based interface<br>
 Select display modes: time with date | time with seconds | time with temperature | time with battery voltage.<br>
 
 MCU-clock: 8 MHz<br>
-Timers used: TCA0 (DCF pulse width measurement), TCB0 (OneWire timing), TCB3/TCD0 (millis), RTC (2 Hz periodic interrupt)
+Timers used: TCB0 (DCF pulse width measurement), RTC (2 Hz clock ticks)
              
 External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC,
 8-digit display (I2C): DFRobot 7-segment, or custom built 14-segment.
@@ -30,7 +30,7 @@ PA7 - Input, mode select button, active low with input-pullup enabled<br>
 PB0 - I2C CLK for display<br>
 PB1 - I2C DATA for display<br>
 
-Compiles with MegaTinyCore on Arduino IDE.<br>
+Compiles with MegaTinyCore (ATtiny1614/412) or MegaAVR-core/MegaCoreX (Arduino Nano Every) on Arduino IDE.<br>
 External libraries required: RTClib (Adafruit fork)<br>
 
 Notes for Arduino Nano Every (ATmega4809):<br>
