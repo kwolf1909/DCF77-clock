@@ -116,7 +116,10 @@ void dcf77::handle(void) {
 #ifdef SERIALDEBUG
   char buffer[40];
 #endif
-  if (checkSignal() == false) return;
+  if (checkSignal() == false) {
+    state = dcfState::IDLE;
+    return;
+  }
   if (pulseReceivedDcf == false) return;
   pulseReceivedDcf = false;
   pulseReceivedAnim = true;
@@ -318,7 +321,6 @@ bool dcf77::checkSignal(void) {
 #endif
     timerTicks = 0;
     noSignalCounter++;
-    return false;
   }
   return true;
 }
