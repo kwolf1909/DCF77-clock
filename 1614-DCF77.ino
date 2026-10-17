@@ -14,7 +14,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 15 2026
+//  Date: Oct 16 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -72,8 +72,7 @@
 const bool      syncAfterStart = true;
 const uint8_t   readDelay = 10;
 const uint16_t  voltageLimit = 3000;
-const uint16_t  newSyncSeconds = 30 * 60;
-const uint32_t  buttonDelay = 500L;
+const uint16_t  newSyncSeconds = 1800;
 
 #ifdef SERIALDEBUG
 char      buffer[40];
