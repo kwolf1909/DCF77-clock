@@ -23,7 +23,7 @@ Temperature-sensor: DS18B20 with external pullup resistor 4,7k ohms.
 
 Pins used (ATtiny1614):<br>
 PA1 - Output, TX for serial debugging<br>
-PA3 - Input, DCF-signal, input-pullup enabled, active-low signal<br>
+PA3 - Input, DCF-signal, input-pullup enabled, active-low signal, external RC low-pass filter recommended<br>
 PA4 - Input/Output, temp sensor DS18B20<br>
 PA5 - Output, LED which mirrors the DCF-input signal in sync-state<br>
 PA7 - Input, mode select button, active low with input-pullup enabled<br>
