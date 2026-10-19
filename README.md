@@ -29,6 +29,7 @@ PA5 - Output, LED which mirrors the DCF-input signal in sync-state<br>
 PA7 - Input, mode select button, active low with input-pullup enabled<br>
 PB0 - I2C CLK for display<br>
 PB1 - I2C DATA for display<br>
+TOSC1 - 32K clock-signal from external RTC
 
 Compiles with MegaTinyCore (ATtiny1614/412) or MegaAVR-core/MegaCoreX (Arduino Nano Every) on Arduino IDE.<br>
 External libraries required: RTClib (Adafruit fork)<br>
