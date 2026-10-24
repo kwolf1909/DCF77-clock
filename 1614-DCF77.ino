@@ -23,7 +23,6 @@
 #define TINYWIRE
 #define LED
 #define BUTTON
-//#define SEG14
 #define DCF_PIN                 4   // PA3
 #define LED_PIN                 0   // PA6
 #define BUTTON_PIN              1   // PA7
@@ -33,6 +32,7 @@
 #include <RTClib.h>
 #include "OneWire.h"
 #define RTCEXT
+#define RTCEXT32K
 #define ONEWIRE
 #define VOLTAGE
 #define SEG14
@@ -160,7 +160,9 @@ void setup() {
       timeState = TIME_RTC;
       alpha.print("RTC OK  ");
     }
+#ifdef RTCEXT32K
     rtc.enable32K();
+#endif
     rtcOk = true;
   }
   else {
@@ -633,8 +635,8 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 
 void RTCinit(void) {
 
-  // enable external 32K clock for internal RTC-timer when external RTC available
-#if defined(__AVR_ATtiny1614__) && defined(RTCEXT)
+  // enable external 32K clock for internal RTC-timer
+#if defined(RTCEXT32K)
   if (rtcOk) {
     uint8_t temp = CLKCTRL.XOSC32KCTRLA & ~CLKCTRL_ENABLE_bm;
     CPU_CCP = CCP_IOREG_gc;
@@ -653,7 +655,7 @@ void RTCinit(void) {
     RTC.CLKSEL = RTC_CLKSEL_TOSC32K_gc;
   }
   else {
-    // use internal 32K clock source if RTC not available
+    // fall back to internal 32K clock source if RTC not available
     while (RTC.STATUS > 0);
     RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
   }
