@@ -14,7 +14,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 16 2026
+//  Date: Oct 24 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -23,6 +23,7 @@
 #define TINYWIRE
 #define LED
 #define BUTTON
+//#define SEG14
 #define DCF_PIN                 4   // PA3
 #define LED_PIN                 0   // PA6
 #define BUTTON_PIN              1   // PA7
@@ -48,7 +49,7 @@
 #include "OneWire.h"
 #define RTCEXT
 #define ONEWIRE
-//#define VOLTAGE
+#define VOLTAGE
 #define SEG14
 #define LED
 #define BUTTON
@@ -56,6 +57,7 @@
 #define LED_PIN                 13  // PE2
 #define BUTTON_PIN              17  // PD0
 #define ONEWIRE_PIN             16  // PD1
+#define AIN2_PIN                15  // PD2
 #endif
 
 //#define SERIALDEBUG
@@ -86,8 +88,7 @@ volatile bool tickTock;
 AlphaDisplay alpha;
 dcf77 dcf;
 timeStampDCF77 dcfTime;
-
-DateTime dt(2026, 1, 1, 0, 0, 0);
+DateTime dt;
 
 #ifdef RTCEXT
 RTC_DS3231 rtc;
@@ -131,10 +132,11 @@ void setup() {
 
 #ifdef BUTTON
   // enable button input pin with pullup (active low)
+  register8_t *pinCtrlReg;
   pinBitmaskButton = digitalPinToBitMask(BUTTON_PIN);
   portIdButton = digitalPinToPort(BUTTON_PIN);
   port[portIdButton]->DIRCLR = pinBitmaskButton;
-  register8_t *pinCtrlReg = &(port[portIdButton]->PIN0CTRL) + digitalPinToBitPosition(BUTTON_PIN);
+  pinCtrlReg = &(port[portIdButton]->PIN0CTRL) + digitalPinToBitPosition(BUTTON_PIN);
   *pinCtrlReg = PORT_PULLUPEN_bm;
 #endif
 
@@ -403,6 +405,7 @@ uint8_t handleButton(uint8_t state) {
     buttonPressed = false;
     switch (state) {
       case SHOW_TIMEDATE:
+        lastLowBatt = false;
         return SHOW_TIMEFULL;
 
       case SHOW_TIMEFULL:
@@ -464,7 +467,7 @@ uint8_t handleReadTempVcc(uint8_t state) {
         temp = ow.readTemperature();
         if (temp != TEMP_ERROR) sens = true;
 #ifdef SERIALDEBUG
-        sprintf(buffer, "DS18B20: Reading temperature: %u", temp);
+        sprintf(buffer, "DS18B20: Reading temperature: %d", temp);
         Serial.println(buffer);
 #endif
 #endif
@@ -474,9 +477,10 @@ uint8_t handleReadTempVcc(uint8_t state) {
 #ifdef VOLTAGE
         vcc = measureVoltage();
         voltage = true;
-        if (vcc > 0 && vcc < voltageLimit) lowBatt = true;
+        if (vcc < voltageLimit) lowBatt = true;
+        else lowBatt = false;
 #ifdef SERIALDEBUG
-        sprintf(buffer, "Voltage: %u", vcc);
+        sprintf(buffer, "ADC: Reading voltage: %u", vcc);
         Serial.println(buffer);
 #endif
 #endif
@@ -673,16 +677,21 @@ void ADCinit(void) {
   VREF.CTRLA = (VREF.CTRLA & ~VREF_ADC0REFSEL_gm) | VREF_ADC0REFSEL_1V1_gc;
   ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
   ADC0.CTRLB = ADC_SAMPNUM_ACC64_gc;
-  ADC0.CTRLC = ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV16_gc | ADC_SAMPCAP_bm;
+  ADC0.CTRLC = ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV32_gc | ADC_SAMPCAP_bm;
   ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
 #endif
 #if defined(__AVR_ATmega4809__)
-  VREF.CTRLA = VREF_ADC0REFSEL_1V1_gc;
-  //ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
-  ADC0.MUXPOS = 0x1C;
+  uint8_t pinBitmaskAdc, portId;
+  register8_t *pinCtrlReg;
+  pinBitmaskAdc = digitalPinToBitMask(AIN2_PIN);
+  portId = digitalPinToPort(AIN2_PIN);
+  pinCtrlReg = &(port[portId]->PIN0CTRL) + digitalPinToBitPosition(AIN2_PIN);
+  *pinCtrlReg &= ~PORT_ISC_gm;
+  *pinCtrlReg |= PORT_ISC_INPUT_DISABLE_gc;
+  VREF.CTRLA |= VREF_ADC0REFSEL_2V5_gc;
   ADC0.CTRLB = ADC_SAMPNUM_ACC64_gc;
-  ADC0.CTRLC = ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV16_gc;
-  ADC0.CTRLA = ADC_ENABLE_bm | ADC_RESSEL_10BIT_gc;
+  ADC0.CTRLC = ADC_REFSEL_INTREF_gc | ADC_PRESC_DIV32_gc | ADC_SAMPCAP_bm;
+  ADC0.CTRLA = ADC_RESSEL_10BIT_gc | ADC_ENABLE_bm;
 #endif
 }
 
@@ -697,13 +706,13 @@ uint16_t measureVoltage(void) {
   return (uint16_t)(72019200UL / accumulatedVal);
 #endif
 #if defined(__AVR_ATmega4809__)
+  ADC0.MUXPOS = ADC_MUXPOS_AIN2_gc;
   ADC0.COMMAND = ADC_STCONV_bm;
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
   ADC0.INTFLAGS = ADC_RESRDY_bm;
-  uint16_t adcVal = ADC0.RES;
-  if (adcVal == 0) return 0;
-  //return 1125300 / adcVal;
-  return (uint16_t)(72019200UL / adcVal);
+  // using external voltage divider 56 kohms (VCC) + 33 kohms (GND)
+  // factor = 2500/1023 * (56 + 33) / 33 = 6,59084 -> * 65536 = 431936
+  return (uint16_t)(((uint32_t)(ADC0.RES >> 6) * 431936L) >> 16);
 #endif
 }
 #endif
