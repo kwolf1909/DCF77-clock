@@ -101,7 +101,8 @@ void dcf77::begin(uint8_t pin1, uint8_t pin2) {
   portIdLed = digitalPinToPort(pin2);
 
   // DCF signal input with pullup
-  register8_t *pinCtrlReg = &PORTA.PIN0CTRL + digitalPinToBitPosition(pin1);
+  register8_t *pinCtrlReg;
+  pinCtrlReg = &PORTA.PIN0CTRL + digitalPinToBitPosition(pin1);
   *pinCtrlReg = PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc;
 
 #ifdef LED
@@ -116,10 +117,7 @@ void dcf77::handle(void) {
 #ifdef SERIALDEBUG
   char buffer[40];
 #endif
-  if (checkSignal() == false) {
-    state = dcfState::IDLE;
-    return;
-  }
+  if (checkSignal() == false) state = dcfState::IDLE;
   if (pulseReceivedDcf == false) return;
   pulseReceivedDcf = false;
   pulseReceivedAnim = true;
@@ -144,7 +142,7 @@ void dcf77::handle(void) {
           Serial.println("DCF: Valid pulse detected");
 #endif
           noSignalCnt = 0;
-          if(++validPulses == 5) {
+          if (++validPulses == 5) {
 #ifdef SERIALDEBUG
             Serial.println("DCF: Wait for minute marker");
 #endif
@@ -189,10 +187,10 @@ void dcf77::handle(void) {
           startBit = true;
           state = dcfState::RECEIVING;
         }
-        if (lastPulse == dcfPulse::INVALID) {
-          // receive signal error
+        else {
+          // wrong startbit
 #ifdef SERIALDEBUG
-          Serial.println("\r\nDCF: Receive signal error");
+          Serial.println("\r\nDCF: False startbit detected, restart");
 #endif
           restartMarker = true;
           state = dcfState::IDLE;
@@ -201,22 +199,17 @@ void dcf77::handle(void) {
       break;
 
     case dcfState::STARTBITCOMPL:
-//    if (lastPulseType == dcfPulseType::END) {
-//      if (lastPulse == dcfPulse::BIT0) {
-      if (lastPulseType == dcfPulseType::START) {
-        if (lastPulse == dcfPulse::PAUSE) {
-
+      if (lastPulseType == dcfPulseType::START && lastPulse == dcfPulse::PAUSE) {
 #ifdef SERIALDEBUG
-          Serial.println("\r\nDCF: Receive complete");
+        Serial.println("\r\nDCF: Receive complete");
 #endif
-          dcfComplete = true;
-          dcfReq = false;
-          state = dcfState::IDLE;
-        }
-        else {
-          restartMarker = true;
-          state = dcfState::IDLE;
-        }
+        dcfComplete = true;
+        dcfReq = false;
+        state = dcfState::IDLE;
+      }
+      else {
+        restartMarker = true;
+        state = dcfState::IDLE;
       }
       break;
 
@@ -233,7 +226,7 @@ void dcf77::handle(void) {
         if (lastPulse == dcfPulse::INVALID) {
 #ifdef SERIALDEBUG
           Serial.println("\r\nDCF: Invalid pulse detected, restart");
-#endif          
+#endif
           // receive signal error
           restartMarker = true;
           state = dcfState::IDLE;
@@ -253,7 +246,7 @@ void dcf77::timerSetup(void) {
   TCB0.CTRLB = TCB_CNTMODE_INT_gc;
   TCB0.CCMP = (F_CPU / 400) - 1;
   TCB0.INTCTRL = TCB_CAPT_bm;
-    
+
   // start timer with CLK_PER/2
   TCB0.CTRLA = TCB_CLKSEL_CLKDIV2_gc | TCB_ENABLE_bm;
   sei();

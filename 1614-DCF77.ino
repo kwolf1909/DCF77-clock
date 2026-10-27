@@ -14,7 +14,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 24 2026
+//  Date: Oct 27 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -516,10 +516,9 @@ void showSync(uint8_t mode) {
       switch (lastPulse) {
         case dcf77::dcfPulse::BIT0: buffer[7] = '0'; break;
         case dcf77::dcfPulse::BIT1: buffer[7] = '1'; break;
-        case dcf77::dcfPulse::INVALID: buffer[7] = 'F'; break;
-        case dcf77::dcfPulse::PAUSE:
         case dcf77::dcfPulse::NONE:
-          break;
+        case dcf77::dcfPulse::INVALID: buffer[7] = 'F'; break;
+        case dcf77::dcfPulse::PAUSE: buffer[7] = 'P'; break;
       }
       buffer[7] |= (dot ? DOT : 0);
       break;
@@ -636,7 +635,7 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 void RTCinit(void) {
 
   // enable external 32K clock for internal RTC-timer
-#if defined(RTCEXT32K)
+#ifdef RTCEXT32K
   if (rtcOk) {
     uint8_t temp = CLKCTRL.XOSC32KCTRLA & ~CLKCTRL_ENABLE_bm;
     CPU_CCP = CCP_IOREG_gc;
@@ -713,8 +712,8 @@ uint16_t measureVoltage(void) {
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
   ADC0.INTFLAGS = ADC_RESRDY_bm;
   // using external voltage divider 56 kohms (VCC) + 33 kohms (GND)
-  // factor = 2500/1023 * (56 + 33) / 33 = 6,59084 -> * 65536 = 431936
-  return (uint16_t)(((uint32_t)(ADC0.RES >> 6) * 431936L) >> 16);
+  // factor = 2500/1023 * (56+33)/33 = 6,59084 -> * 65536 = 431937
+  return (uint16_t)(((uint32_t)(ADC0.RES >> 6) * 431937L) >> 16);
 #endif
 }
 #endif
