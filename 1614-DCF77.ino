@@ -14,7 +14,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 27 2026
+//  Date: Oct 30 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -735,5 +735,5 @@ ISR(PORTA_PORT_vect) {
 // the TCB0-timer interrupt is called every 5 ms
 ISR(TCB0_INT_vect) {
   TCB0.INTFLAGS = TCB_CAPT_bm;
-  dcf.timerTicks++;
+  dcf.timerTick();
 }
