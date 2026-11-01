@@ -207,6 +207,7 @@ void dcf77::handle(void) {
 
           // disable DCF-module
           PORTA.OUTCLR = pinBitmaskDcfPwr;
+          port[portIdLed]->OUTCLR = pinBitmaskLed;
         }
         else {
 #ifdef SERIALDEBUG
