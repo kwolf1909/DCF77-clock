@@ -35,10 +35,10 @@ class dcf77 {
     enum class dcfPulse { NONE = 1, PAUSE, BIT0, BIT1, INVALID };
     enum class dcfPulseType { START = 1, END };
     enum class dcfSignal { WAIT = 1, GOOD, NOSIGNAL };
-    uint8_t pinBitmaskDcf, pinBitmaskLed, portIdLed;
+    uint8_t pinBitmaskDcf, pinBitmaskDcfPwr, pinBitmaskLed, portIdLed;
 
     dcf77();
-    void begin(uint8_t, uint8_t);
+    void begin(uint8_t, uint8_t, uint8_t);
     void handle();
     void timerSetup();
     void timerTick();
@@ -93,15 +93,21 @@ dcf77::dcf77() {
   lastPulseType = dcfPulseType::START;
 }
 
-void dcf77::begin(uint8_t pin1, uint8_t pin2) {
-  pinBitmaskDcf = digitalPinToBitMask(pin1);
-  pinBitmaskLed = digitalPinToBitMask(pin2);
-  portIdLed = digitalPinToPort(pin2);
+void dcf77::begin(uint8_t pinDcf, uint8_t pinDcfPwr, uint8_t pinLed) {
+  pinBitmaskDcf = digitalPinToBitMask(pinDcf);
+  pinBitmaskDcfPwr = digitalPinToBitMask(pinDcfPwr);
+  pinBitmaskLed = digitalPinToBitMask(pinLed);
+  portIdLed = digitalPinToPort(pinLed);
 
-  // DCF signal input with pullup
+  // DCF signal input
+  PORTA.DIRCLR = pinBitmaskDcf;
   register8_t *pinCtrlReg;
-  pinCtrlReg = &PORTA.PIN0CTRL + digitalPinToBitPosition(pin1);
-  *pinCtrlReg = PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc;
+  pinCtrlReg = &PORTA.PIN0CTRL + digitalPinToBitPosition(pinDcf);
+  *pinCtrlReg = PORT_ISC_BOTHEDGES_gc;
+  
+  // DCF module-power
+  PORTA.DIRSET = pinBitmaskDcfPwr;
+  PORTA.OUTCLR = pinBitmaskDcfPwr;
 
 #ifdef LED
   port[portIdLed]->DIRSET = pinBitmaskLed;
@@ -112,9 +118,6 @@ void dcf77::begin(uint8_t pin1, uint8_t pin2) {
 
 void dcf77::handle(void) {
 
-#ifdef SERIALDEBUG
-  char buffer[40];
-#endif
   if (checkSignal() == false) state = dcfState::IDLE;
   if (pulseReceivedDcf == false) return;
   pulseReceivedDcf = false;
@@ -155,8 +158,8 @@ void dcf77::handle(void) {
       if (lastPulseType == dcfPulseType::START && lastPulse == dcfPulse::PAUSE) {
         // minute marker detected
 #ifdef SERIALDEBUG
-        sprintf(buffer, "DCF: lastPauseLength %u", lastPulseLength);
-        Serial.println(buffer);
+        Serial.print("DCF: lastPauseLength ");
+        Serial.println(lastPulseLength, DEC);
         Serial.println("DCF: Minute marker detected");
 #endif
         minuteMarker = true;
@@ -164,8 +167,8 @@ void dcf77::handle(void) {
       }
 #ifdef SERIALDEBUG
       if (lastPulseType == dcfPulseType::END) {
-        sprintf(buffer, "DCF: lastPulseLength %u", lastPulseLength);
-        Serial.println(buffer);
+        Serial.print("DCF: lastPulseLength ");
+        Serial.println(lastPulseLength, DEC);
       }
 #endif
       break;
@@ -201,6 +204,9 @@ void dcf77::handle(void) {
           dcfComplete = true;
           dcfReq = false;
           state = dcfState::IDLE;
+
+          // disable DCF-module
+          PORTA.OUTCLR = pinBitmaskDcfPwr;
         }
         else {
 #ifdef SERIALDEBUG
@@ -263,6 +269,9 @@ void dcf77::request(void) {
   startBit = false;
   receiveBit = false;
   restartMarker = false;
+
+  // enable DCF-module
+  PORTA.OUTSET = pinBitmaskDcfPwr;
 
   // clear receive data buffer
   //for (uint8_t i = 0; i < DCF_SIZE; i++) bitArray[i] = 0;

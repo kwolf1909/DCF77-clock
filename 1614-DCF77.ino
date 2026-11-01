@@ -14,7 +14,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Oct 30 2026
+//  Date: Nov 01 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -22,38 +22,41 @@
 #include "DateTime.h"
 #define TINYWIRE
 #define LED
-#define BUTTON
 #define DCF_PIN                 4   // PA3
 #define LED_PIN                 0   // PA6
-#define BUTTON_PIN              1   // PA7
+#define DCFPWR_PIN              1   // PA7
 #endif
 #if defined(__AVR_ATtiny1614__)
 #include <Wire.h>
-#include <RTClib.h>
+#include "DS3231.h"
 #include "OneWire.h"
 #define RTCEXT
 #define RTCEXT32K
+//#define RTCTEMP
 #define ONEWIRE
 #define VOLTAGE
 #define SEG14
 #define LED
 #define BUTTON
 #define DCF_PIN                 10  // PA3
-#define LED_PIN                 1   // PA5
-#define BUTTON_PIN              3   // PA7
 #define ONEWIRE_PIN             0   // PA4
+#define LED_PIN                 1   // PA5
+#define DCFPWR_PIN              2   // PA6
+#define BUTTON_PIN              3   // PA7
 #endif
 #if defined(__AVR_ATmega4809__)
 #include <Wire.h>
-#include <RTClib.h>
+#include "DS3231.h"
 #include "OneWire.h"
 #define RTCEXT
+//#define RTCTEMP
 #define ONEWIRE
 #define VOLTAGE
 #define SEG14
 #define LED
 #define BUTTON
 #define DCF_PIN                 2   // PA0
+#define DCFPWR_PIN              7   // PA1
 #define LED_PIN                 13  // PE2
 #define BUTTON_PIN              17  // PD0
 #define ONEWIRE_PIN             16  // PD1
@@ -76,9 +79,6 @@ const uint8_t   readDelay = 10;
 const uint16_t  voltageLimit = 3000;
 const uint16_t  newSyncSeconds = 1800;
 
-#ifdef SERIALDEBUG
-char      buffer[40];
-#endif
 bool      syncReq, syncComplete, sens, voltage, buttonPressed, lowBatt, rtcOk;
 uint8_t   timeState, showState, receiveState, syncState, readState, pinBitmaskButton, portIdButton;
 int16_t   temp;
@@ -102,7 +102,7 @@ enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
 enum { RECEIVE_INIT = 1, RECEIVE_IDLE, RECEIVE_RECEIVING, RECEIVE_COMPLETE };
 enum { SHOW_TIMEDATE = 1, SHOW_TIMEFULL, SHOW_TIMETEMP, SHOW_LOWBATT };
 enum { SHOWSYNC_IDLE = 1, SHOWSYNC_MINUTEMARKER, SHOWSYNC_RECEIVING, SHOWSYNC_RECEIVECOMPL, SHOWSYNC_NOSIGNAL, SHOWSYNC_WAITSIGNAL };
-enum { READ_IDLE = 1, READ_STARTCONV, READ_TEMP, READ_VCC};
+enum { READ_IDLE = 1, READ_STARTCONV, READ_TEMP, READ_RTCTEMP, READ_VCC};
 
 //----------------------------------------------------------------------------------
 
@@ -116,8 +116,8 @@ void setup() {
   Serial.begin(115200);
 #endif
   Serial.println("\r\nInit...");
-  sprintf(buffer, "F_CPU=%lu", F_CPU);
-  Serial.println(buffer);
+  Serial.print("F_CPU=");
+  Serial.println(F_CPU, DEC);
 #endif
 
 #ifdef TINYWIRE
@@ -154,6 +154,7 @@ void setup() {
   // initialize external RTC
   if (rtc.begin()) {
     if (rtc.lostPower()) {
+      rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0));
       alpha.print("RTC PWR ");
     }
     else {
@@ -178,7 +179,7 @@ void setup() {
   ADCinit();
 #endif
   // start DCF signal processing
-  dcf.begin(DCF_PIN, LED_PIN);
+  dcf.begin(DCF_PIN, DCFPWR_PIN, LED_PIN);
 
   receiveState = RECEIVE_INIT;
   syncState = SHOWSYNC_IDLE;
@@ -190,6 +191,10 @@ void setup() {
   voltage = false;
   lowBatt = false;
   vcc = voltageLimit;
+
+#ifdef SERIALDEBUG
+  Serial.println("Init finished.");
+#endif
 }
 
 //----------------------------------------------------------------------------------
@@ -285,7 +290,7 @@ uint8_t handleReceive(uint8_t state) {
         syncReq = false;
         syncComplete = false;
 #ifdef SERIALDEBUG
-        Serial.println("\r\nSync: Started");
+        Serial.println("Sync: Started");
 #endif
         dcf.request();
         return RECEIVE_RECEIVING;
@@ -317,8 +322,7 @@ uint8_t handleReceive(uint8_t state) {
         rtc.adjust(dt);
 #endif
 #ifdef SERIALDEBUG
-        sprintf(buffer, "Receive: RTC synced to DCF-time %02u:%02u:00", dcfTime.hour, dcfTime.minute);
-        Serial.println(buffer);
+        Serial.println("Receive: RTC synced to DCF-time");
 #endif
         // clear RTC clock counter
         while (RTC.STATUS > 0);
@@ -433,7 +437,8 @@ uint8_t handleButton(uint8_t state) {
 #endif
 
 //----------------------------------------------------------------------------------
-#if defined (ONEWIRE) || defined (VOLTAGE)
+
+#if defined (ONEWIRE) || defined (RTCTEMP) || defined (VOLTAGE)
 uint8_t handleReadTempVcc(uint8_t state) {
 
   bool tt = tickTock;
@@ -446,44 +451,61 @@ uint8_t handleReadTempVcc(uint8_t state) {
   // don't read values during DCF signal processing
   if (dcf.getRequestState()) return READ_IDLE;
 
-  if (prevtt) {
+  if (tt) {
+    // this is called once a second
     switch (state) {
       case READ_IDLE:
         if (delayCounter++ >= readDelay) {
-#ifdef ONEWIRE
+
+#if defined (ONEWIRE)
           return READ_STARTCONV;
-#else
+#elif defined (RTCTEMP)
+          return READ_RTCTEMP;
+#elif defined (VOLTAGE)
           return READ_VCC;
+#else
+          return READ_IDLE;
 #endif
         }
         break;
 
-      case READ_STARTCONV:
 #ifdef ONEWIRE
+      case READ_STARTCONV:
         ow.startConversion();
-#endif
         return READ_TEMP;
 
       case READ_TEMP:
-#ifdef ONEWIRE
         temp = ow.readTemperature();
         if (temp != TEMP_ERROR) sens = true;
 #ifdef SERIALDEBUG
-        sprintf(buffer, "DS18B20: Reading temperature: %d", temp);
-        Serial.println(buffer);
-#endif
+        Serial.print("DS18B20: Temperature: ");
+        Serial.println(temp, DEC);
 #endif
         return READ_VCC;
+#endif
+
+#ifdef RTCTEMP
+      case READ_RTCTEMP:
+        if (rtcOk) {
+          temp = rtc.getTemperature();
+          sens = true;
+#ifdef SERIALDEBUG
+          Serial.print("DS3231: Temperature: ");
+          Serial.println(temp, DEC);
+#endif
+        }
+        return READ_VCC;
+#endif
 
       case READ_VCC:
 #ifdef VOLTAGE
         vcc = measureVoltage();
         voltage = true;
+        lowBatt = false;
         if (vcc < voltageLimit) lowBatt = true;
-        else lowBatt = false;
 #ifdef SERIALDEBUG
-        sprintf(buffer, "ADC: Reading voltage: %u", vcc);
-        Serial.println(buffer);
+        Serial.print("ADC: Voltage: ");
+        Serial.println(vcc, DEC);
 #endif
 #endif
         delayCounter = 0;
@@ -591,7 +613,7 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
       buffer[7] = ' ';
       break;
 
-#ifdef ONEWIRE
+#if defined (ONEWIRE) || defined (RTCTEMP)
     case SHOW_TIMETEMP:
     {
       bool neg = false;
@@ -621,8 +643,8 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 #ifdef VOLTAGE
     case SHOW_LOWBATT:
       buffer[4] = ' ';
-      buffer[5] = ('0' + (vcc / 1000)) | DOT;
-      buffer[6] = '0' + ((vcc / 100) % 10);
+      buffer[5] = ('0' + ((vcc + 50) / 1000)) | DOT;
+      buffer[6] = '0' + (((vcc + 50) / 100) % 10);
       buffer[7] = 'V';
       break;
 #endif
