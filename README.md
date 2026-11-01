@@ -1,5 +1,5 @@
 This application receives the european DCF77 time signal and syncs it with the external RTC-clock. It is displayed on a 8-digit 14- or 7-segment display with display-controller HT16K33.<br>
-The MCU used is an ATtiny1614 or an ATmega4809 (Arduino Nano Every). Without external RTC, serial debugging and OneWire, an ATtiny412 can be
+The MCU used is an ATtiny814/1614 or an ATmega4809 (Arduino Nano Every). Without external RTC, serial debugging and OneWire, an ATtiny412 can be
 used (98 % of flash space used). With some small modifications, the newer AVR Dx-series could be used as well.<br>
 The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V, the voltage is displayed as a low voltage indicator.<br>
 The temperature can be read by internal sensor of RTC or external OneWire-based sensor.<br>
@@ -12,7 +12,7 @@ Select display modes: time with date | time with seconds | time with temperature
 MCU-clock: 8 MHz<br>
 Timers used: TCB0 (DCF pulse width measurement), RTC (2 Hz clock ticks)
              
-Pins used (ATtiny1614):<br>
+Pins used (ATtiny814/1614):<br>
 PA1 - Output, TX for serial debugging.<br>
 PA2 - Input, RX (not used).<br>
 PA3 - Input, DCF-signal, active-low signal, external pull-up 10 kilohm required, external RC low-pass filter recommended.<br>
@@ -24,7 +24,7 @@ PB0 - I2C CLK for display & RTC.<br>
 PB1 - I2C DATA for display & RTC.<br>
 TOSC1 - 32K clock-signal from external RTC, external pull-up 10 kilohm required.<br>
 
-Compiles with MegaTinyCore (ATtiny1614/412) or MegaAVR-core/MegaCoreX (Arduino Nano Every) on Arduino IDE.<br>
+Compiles with MegaTinyCore (ATtiny814/1614/412) or MegaAVR-core/MegaCoreX (Arduino Nano Every) on Arduino IDE.<br>
 
 Notes for Arduino Nano Every (ATmega4809):<br>
 Actually there is no way to feed the external 32K clock signal from the RTC because TOSC1-pin is not accessible. Hence, the internal 32K clock is used.
