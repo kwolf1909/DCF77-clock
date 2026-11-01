@@ -3,7 +3,7 @@
 #if defined (__AVR_ATtiny412__)
 PORT_t* const port[] = { &PORTA };
 #endif
-#if defined (__AVR_ATtiny1614__)
+#if defined(__AVR_ATtiny814__) || defined (__AVR_ATtiny1614__)
 PORT_t* const port[] = { &PORTA, &PORTB };
 #endif
 #if defined (__AVR_ATmega4809__)

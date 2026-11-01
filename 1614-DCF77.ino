@@ -26,7 +26,7 @@
 #define LED_PIN                 0   // PA6
 #define DCFPWR_PIN              1   // PA7
 #endif
-#if defined(__AVR_ATtiny1614__)
+#if defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
 #include <Wire.h>
 #include "DS3231.h"
 #include "OneWire.h"
@@ -95,7 +95,7 @@ RTC_DS3231 rtc;
 #endif
 
 #ifdef ONEWIRE
-OneWire ow(ONEWIRE_PIN);
+OneWire ow;
 #endif
 
 enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
@@ -108,7 +108,7 @@ enum { READ_IDLE = 1, READ_STARTCONV, READ_TEMP, READ_RTCTEMP, READ_VCC};
 
 void setup() {
 #ifdef SERIALDEBUG
-#if defined(__AVR_ATtiny1614__)
+#if defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
   Serial.swap(1); // PA1(TX)
   Serial.begin(115200, SERIAL_TX_ONLY);
 #endif
@@ -141,7 +141,7 @@ void setup() {
 #endif
 
 #ifdef ONEWIRE
-  ow.setup();
+  ow.setup(ONEWIRE_PIN);
   if (!ow.reset()) {
     ow.setResolution(ONEWIRE_RESOLUTION);
     alpha.print("TEMP OK ");
@@ -696,7 +696,7 @@ void RTCinit(void) {
 #ifdef VOLTAGE
 // configure internal ADC for reading own supply voltage
 void ADCinit(void) {
-#if defined(__AVR_ATtiny412__) || defined(__AVR_ATtiny1614__)
+#if defined(__AVR_ATtiny412__) || defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
   VREF.CTRLA = (VREF.CTRLA & ~VREF_ADC0REFSEL_gm) | VREF_ADC0REFSEL_1V1_gc;
   ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
   ADC0.CTRLB = ADC_SAMPNUM_ACC64_gc;
@@ -720,7 +720,7 @@ void ADCinit(void) {
 
 // the voltage is read by accumulating 64 samples
 uint16_t measureVoltage(void) {
-#if defined(__AVR_ATtiny412__) || defined(__AVR_ATtiny1614__)
+#if defined(__AVR_ATtiny412__) || defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
   ADC0.COMMAND = ADC_STCONV_bm;
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
   ADC0.INTFLAGS = ADC_RESRDY_bm;

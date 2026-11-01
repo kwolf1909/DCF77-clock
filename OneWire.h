@@ -6,32 +6,31 @@
 
 class OneWire {
   public:    
-    OneWire(uint8_t);
-    void setup();
+    OneWire();
+    bool setup(uint8_t);
     uint8_t reset();
-    void write(uint8_t);
-    uint8_t read();
-    void readBytes(uint8_t);
     bool startConversion();
     int16_t readTemperature();
     bool setResolution(uint8_t);
     
   private:
-    uint8_t pinBitmask, pinBit, portID;
-    uint8_t dataBytes[9];
-    const uint8_t ReadROM = 0x33;
-    const uint8_t MatchROM = 0x55;
-    const uint8_t SkipROM = 0xCC;
-    const uint8_t ConvertT = 0x44;
-    const uint8_t WriteScratchpad = 0x4E;
-    const uint8_t ReadScratchpad = 0xBE;
+    uint8_t pinBitmask, portID, dataBytes[9];
+    const uint8_t readROM = 0x33;
+    const uint8_t matchROM = 0x55;
+    const uint8_t skipROM = 0xCC;
+    const uint8_t convertT = 0x44;
+    const uint8_t copyScratchpad = 0x48;
+    const uint8_t writeScratchpad = 0x4E;
+    const uint8_t readScratchpad = 0xBE;
     const uint8_t res9bit = 0x1F;
     const uint8_t res10bit = 0x3F;
     const uint8_t res11bit = 0x5F;
     const uint8_t res12bit = 0x7F;
     enum class timing { RESETLOW = 480, RESETREL = 70, RESETDELAY = 410, READLOW = 6, READREL = 9, READDELAY = 55,
                         WRITE0LOW = 60, WRITE0REL = 10, WRITE1LOW = 6, WRITE1REL = 64 };
-
+    void write(uint8_t);
+    uint8_t read();
+    void readBytes(uint8_t);
     inline void pinLow();
     inline void pinRelease();
     inline uint8_t pinRead();
@@ -39,16 +38,15 @@ class OneWire {
     uint8_t CRC(uint8_t);
 };
 
-OneWire::OneWire(uint8_t pin) {
-  pinBitmask = digitalPinToBitMask(pin);
-  pinBit = digitalPinToBitPosition(pin);
-  portID = digitalPinToPort(pin);
-}
+OneWire::OneWire() {}
 
-void OneWire::setup(void) {
+bool OneWire::setup(uint8_t owPin) {
+  pinBitmask = digitalPinToBitMask(owPin);
+  portID = digitalPinToPort(owPin);
 
-  if (portID == NOT_A_PORT) return;
+  if (portID == NOT_A_PORT) return false;
   port[portID]->DIRCLR = pinBitmask;
+  return true;
 }
 
 inline void OneWire::pinLow() {
@@ -121,8 +119,8 @@ bool OneWire::startConversion() {
   if (reset() != 0) {
     return false;
   } else {
-    write(SkipROM);
-    write(ConvertT);
+    write(skipROM);
+    write(convertT);
   }
   return true;
 }
@@ -135,8 +133,8 @@ int16_t OneWire::readTemperature() {
   if (reset() != 0) {
     return TEMP_ERROR;
   } else {
-    write(SkipROM);
-    write(ReadScratchpad);
+    write(skipROM);
+    write(readScratchpad);
     readBytes(9);
     if (CRC(9) == 0) {
       rawTemp = (((int16_t)dataBytes[1]) << 8) | dataBytes[0];
@@ -157,10 +155,10 @@ bool OneWire::setResolution(uint8_t resolution) {
   }
 
   if (reset() != 0) {
-    write(SkipROM);
-    write(WriteScratchpad);
+    write(skipROM);
+    write(writeScratchpad);
     write(0);
-    write(100);
+    write(0);
     write(res);
     reset();
     return true;
