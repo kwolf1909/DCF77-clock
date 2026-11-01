@@ -1,7 +1,8 @@
 This application receives the european DCF77 time signal and syncs it with the external RTC-clock. It is displayed on a 8-digit 14- or 7-segment display with display-controller HT16K33.<br>
 The MCU used is an ATtiny1614 or an ATmega4809 (Arduino Nano Every). Without external RTC, serial debugging and OneWire, an ATtiny412 can be
 used (98 % of flash space used). With some small modifications, the newer AVR Dx-series could be used as well.<br>
-The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V, the voltage is displayed as a low voltage indicator.
+The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V, the voltage is displayed as a low voltage indicator.<br>
+The temperature can be read by internal sensor of RTC or external OneWire-based sensor.<br>
 A sync to DCF-time is performed in the background every 30 minutes, and immediately after power-up.<br>
 The software uses a layer-based approach. Low-level: DCF-object with interrupt handler, mid-level: receiving data state machine, upper level: display handling and user interface. No blocking code, using several finite state machines (FSM).<br>
 
@@ -14,13 +15,13 @@ Timers used: TCB0 (DCF pulse width measurement), RTC (2 Hz clock ticks)
 Pins used (ATtiny1614):<br>
 PA1 - Output, TX for serial debugging.<br>
 PA2 - Input, RX (not used).<br>
-PA3 - Input, DCF-signal, active-low signal, external pull-up 10 kohms required, external RC low-pass filter recommended.<br>
-PA4 - Input/Output, temp sensor DS18B20, external pull-up 10 kohms required.<br>
+PA3 - Input, DCF-signal, active-low signal, external pull-up 10 kilohms required, external RC low-pass filter recommended.<br>
+PA4 - Input/Output, OneWire data, external pull-up 10 kilohms required.<br>
 PA5 - Output, LED, mirrors the DCF-input signal in sync-state, active high.<br>
 PA7 - Input, mode select button, active low with input-pullup enabled<br>
 PB0 - I2C CLK for display & RTC.<br>
 PB1 - I2C DATA for display & RTC.<br>
-TOSC1 - 32K clock-signal from external RTC, external pull-up 10 kohms required.<br>
+TOSC1 - 32K clock-signal from external RTC, external pull-up 10 kilohms required.<br>
 
 Compiles with MegaTinyCore (ATtiny1614/412) or MegaAVR-core/MegaCoreX (Arduino Nano Every) on Arduino IDE.<br>
 External libraries required: RTClib (Adafruit fork)<br>
@@ -36,7 +37,7 @@ DFRobot 7-segment 8-digit display: https://www.dfrobot.com/product-1978.html<br>
 Or: Custom built alphanumeric display: http://www.technoblogy.com/show?2ULE<br>
 Alphanumeric displays used on board: https://www.adafruit.com/product/2154<br>
 Temperature-sensor: DS18B20<br>
-Resistors: 1x 1 kohm (LED), 3x 10 kohms (pullups)<br>
+Resistors: 1x 1 kilohm (LED), 3x 10 kilohm (pullups)<br>
 
 <img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" /><br>
 
