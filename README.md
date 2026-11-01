@@ -15,13 +15,13 @@ Timers used: TCB0 (DCF pulse width measurement), RTC (2 Hz clock ticks)
 Pins used (ATtiny1614):<br>
 PA1 - Output, TX for serial debugging.<br>
 PA2 - Input, RX (not used).<br>
-PA3 - Input, DCF-signal, active-low signal, external pull-up 10 kilohms required, external RC low-pass filter recommended.<br>
-PA4 - Input/Output, OneWire data, external pull-up 10 kilohms required.<br>
+PA3 - Input, DCF-signal, active-low signal, external pull-up 10 kilohm required, external RC low-pass filter recommended.<br>
+PA4 - Input/Output, OneWire data, external pull-up 10 kilohm required.<br>
 PA5 - Output, LED, mirrors the DCF-input signal in sync-state, active high.<br>
 PA7 - Input, mode select button, active low with input-pullup enabled<br>
 PB0 - I2C CLK for display & RTC.<br>
 PB1 - I2C DATA for display & RTC.<br>
-TOSC1 - 32K clock-signal from external RTC, external pull-up 10 kilohms required.<br>
+TOSC1 - 32K clock-signal from external RTC, external pull-up 10 kilohm required.<br>
 
 Compiles with MegaTinyCore (ATtiny1614/412) or MegaAVR-core/MegaCoreX (Arduino Nano Every) on Arduino IDE.<br>
 External libraries required: RTClib (Adafruit fork)<br>
