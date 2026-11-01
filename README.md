@@ -3,7 +3,7 @@ The MCU used is an ATtiny1614 or an ATmega4809 (Arduino Nano Every). Without ext
 used (98 % of flash space used). With some small modifications, the newer AVR Dx-series could be used as well.<br>
 The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V, the voltage is displayed as a low voltage indicator.<br>
 The temperature can be read by internal sensor of RTC or external OneWire-based sensor.<br>
-A sync to DCF-time is performed in the background every 30 minutes, and immediately after power-up.<br>
+A sync to DCF-time is performed in the background every 30 minutes, and immediately after power-up. The DCF-module is powered only during sync-cycle.<br>
 The software uses a layer-based approach. Low-level: DCF-object with interrupt handler, mid-level: receiving data state machine, upper level: display handling and user interface. No blocking code, using several finite state machines (FSM).<br>
 
 Push-button based interface<br>
@@ -18,6 +18,7 @@ PA2 - Input, RX (not used).<br>
 PA3 - Input, DCF-signal, active-low signal, external pull-up 10 kilohm required, external RC low-pass filter recommended.<br>
 PA4 - Input/Output, OneWire data, external pull-up 10 kilohm required.<br>
 PA5 - Output, LED, mirrors the DCF-input signal in sync-state, active high.<br>
+PA6 - Output, DCF-module power, connect to VCC of module.<br>
 PA7 - Input, mode select button, active low with input-pullup enabled<br>
 PB0 - I2C CLK for display & RTC.<br>
 PB1 - I2C DATA for display & RTC.<br>
