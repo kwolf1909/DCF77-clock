@@ -28,7 +28,7 @@ External libraries required: RTClib (Adafruit fork)<br>
 
 Notes for Arduino Nano Every (ATmega4809):<br>
 Actually there is no way to feed the external 32K clock signal from the RTC because TOSC1-pin is not accessible. Hence, the internal 32K clock is used.
-The voltage measurement for the own supply voltage is done by using an external voltage divider using two resistors 56 kohms (VCC) + 33 kohms (GND). The divided voltage is fed into pin AIN2.<br>
+The voltage measurement for the own supply voltage is done by using an external voltage divider using two resistors 56 kilohm (VCC) + 33 kilohm (GND). The divided voltage is fed into pin AIN2.<br>
 
 Hardware:<br>
 DS3231 RTC Precision Breakout: https://www.adafruit.com/product/3013<br>
