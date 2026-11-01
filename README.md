@@ -25,7 +25,6 @@ PB1 - I2C DATA for display & RTC.<br>
 TOSC1 - 32K clock-signal from external RTC, external pull-up 10 kilohm required.<br>
 
 Compiles with MegaTinyCore (ATtiny1614/412) or MegaAVR-core/MegaCoreX (Arduino Nano Every) on Arduino IDE.<br>
-External libraries required: RTClib (Adafruit fork)<br>
 
 Notes for Arduino Nano Every (ATmega4809):<br>
 Actually there is no way to feed the external 32K clock signal from the RTC because TOSC1-pin is not accessible. Hence, the internal 32K clock is used.
