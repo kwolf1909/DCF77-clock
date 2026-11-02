@@ -32,9 +32,8 @@ TOSC1 - 32K clock-signal from external RTC, external pull-up 10 kilohm required.
 Actually there is no way to feed the external 32K clock signal from the RTC because TOSC1-pin is not accessible. Hence, the internal 32K clock is used.
 The voltage measurement for the own supply voltage is done by using an external voltage divider using two resistors 56 kilohm (VCC) + 33 kilohm (GND). The divided voltage is fed into pin AIN2.<br>
 
-## Debugging
-A serial debug output (115200 baud) can be enabled by uncommenting SERIALDEBUG. Due to limited flash space on ATtiny814, this requires some other functions to be disabled temporarily, e.g. OneWire.
-This shows a debug-output for a complete receiving-cycle as an example.
+## Serial Monitor
+A serial monitor output (115200 baud) can be enabled by uncommenting SERIALDEBUG. Due to limited flash space on ATtiny814, this requires some other functions to be disabled temporarily, e.g. OneWire. This shows an output for a complete receiving-cycle as an example.
 ```
 DCF: Minute marker detected
 DCF: Startbit detected, receiving now...
@@ -42,7 +41,7 @@ DCF: Startbit detected, receiving now...
 DCF: Receive complete
 Receive: Receive complete
 Receive: Decode successful
-Receive: RTC synced to DCF-time 17:51:00
+Receive: RTC synced to DCF-time
 ```
 ## Hardware
 [DS3231 RTC Precision Breakout](https://www.adafruit.com/product/3013)<br>
