@@ -5,8 +5,8 @@
 //  It is displayed on an 8-digit alphanumeric- or 7-segment display with display-controller HT16K33.
 //  The MCU used is an ATtiny 814/1614 or an ATmega 4809. With reduced features, an ATtiny 412
 //  can be used.
-//  The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V,
-//  the voltage is displayed as a low voltage indicator.
+//  The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V, the voltage is
+//  displayed as a low voltage indicator.
 //  A push button switches between different display modes:
 //  Time with date, time with seconds, time with temperature, time with battery voltage
 //
@@ -15,7 +15,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Nov 01 2026
+//  Date: Nov 02 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)

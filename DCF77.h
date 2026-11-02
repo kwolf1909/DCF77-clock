@@ -31,11 +31,11 @@ struct timeStampDCF77
 class dcf77 {
   public:
     enum class result { SUCCESS = 0, INVALID = -1 };
-    enum class dcfState { IDLE = 1, DETECT, STARTBIT, STARTBITCOMPL, MINUTEMARKER, RECEIVING };
+    enum class dcfState { IDLE = 1, DETECT, STARTBIT, STARTBITCOMPL1, STARTBITCOMPL2, MINUTEMARKER, RECEIVING };
     enum class dcfPulse { NONE = 1, PAUSE, BIT0, BIT1, INVALID };
     enum class dcfPulseType { START = 1, END };
     enum class dcfSignal { WAIT = 1, GOOD, NOSIGNAL };
-    uint8_t pinBitmaskDcf, pinBitmaskDcfPwr, pinBitmaskLed, portIdLed;
+    uint8_t pinBitmaskDcf, pinBitmaskDcfPwr, pinBitmaskLed, portIdDcfPwr, portIdLed;
 
     dcf77();
     void begin(uint8_t, uint8_t, uint8_t);
@@ -97,6 +97,7 @@ void dcf77::begin(uint8_t pinDcf, uint8_t pinDcfPwr, uint8_t pinLed) {
   pinBitmaskDcf = digitalPinToBitMask(pinDcf);
   pinBitmaskDcfPwr = digitalPinToBitMask(pinDcfPwr);
   pinBitmaskLed = digitalPinToBitMask(pinLed);
+  portIdDcfPwr = digitalPinToPort(pinDcfPwr);
   portIdLed = digitalPinToPort(pinLed);
 
   // DCF signal input
@@ -106,8 +107,8 @@ void dcf77::begin(uint8_t pinDcf, uint8_t pinDcfPwr, uint8_t pinLed) {
   *pinCtrlReg = PORT_ISC_BOTHEDGES_gc;
   
   // DCF module-power
-  PORTA.DIRSET = pinBitmaskDcfPwr;
-  PORTA.OUTCLR = pinBitmaskDcfPwr;
+  port[portIdDcfPwr]->DIRSET = pinBitmaskDcfPwr;
+  port[portIdDcfPwr]->OUTCLR = pinBitmaskDcfPwr;
 
 #ifdef LED
   port[portIdLed]->DIRSET = pinBitmaskLed;
@@ -195,27 +196,33 @@ void dcf77::handle(void) {
       }
       break;
 
-    case dcfState::STARTBITCOMPL:
+    case dcfState::STARTBITCOMPL1:
+      // wait for pause marker
       if (lastPulseType == dcfPulseType::START) {
         if (lastPulse == dcfPulse::PAUSE) {
-#ifdef SERIALDEBUG
-          Serial.println("\r\nDCF: Receive complete");
-#endif
-          dcfComplete = true;
-          dcfReq = false;
-          state = dcfState::IDLE;
-
-          // disable DCF-module
-          PORTA.OUTCLR = pinBitmaskDcfPwr;
-          port[portIdLed]->OUTCLR = pinBitmaskLed;
+          state = dcfState::STARTBITCOMPL2;
         }
         else {
 #ifdef SERIALDEBUG
-          Serial.println("\r\nDCF: Final startbit not detected, restart");
+          Serial.println("\r\nDCF: Next startbit not detected, restart");
 #endif
           restartMarker = true;
           state = dcfState::IDLE;
         }
+      }
+      break;
+      
+    case dcfState::STARTBITCOMPL2:
+      if (lastPulseType == dcfPulseType::END && lastPulse == dcfPulse::BIT0) {
+#ifdef SERIALDEBUG
+        Serial.println("\r\nDCF: Next startbit detected, receive complete");
+#endif
+        dcfReq = false;
+        dcfComplete = true;
+        state = dcfState::IDLE;
+
+        // disable DCF-module
+        port[portIdDcfPwr]->OUTCLR = pinBitmaskDcfPwr;
       }
       break;
 
@@ -238,7 +245,7 @@ void dcf77::handle(void) {
           state = dcfState::IDLE;
         }
         // finally wait for next startbit to complete
-        if (dcfPos == DCF_SIZE - 1) state = dcfState::STARTBITCOMPL;
+        if (dcfPos == DCF_SIZE - 1) state = dcfState::STARTBITCOMPL1;
       }
       break;
   }
@@ -322,9 +329,6 @@ bool dcf77::checkSignal(void) {
     return false;
   }
   if (timerTicks > pauseDurationHigh) {
-#ifdef SERIALDEBUG
-    Serial.println("DCF: timerTicks > pauseDurationHigh");
-#endif
     timerTicks = 0;
     noSignalCounter++;
   }
