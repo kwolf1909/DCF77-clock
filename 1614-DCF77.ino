@@ -15,7 +15,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Nov 02 2026
+//  Date: Nov 04 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -66,21 +66,24 @@
 
 //#define SERIALDEBUG
 
+const bool    syncAfterStart = true;    // trigger DCF-sync after startup
+const bool    nightMode = true;         // enable night mode
+const uint8_t displayAddress = 0x70;    // I2C display address
+const uint8_t displayDigits = 8;        // number of digits
+const uint8_t displayBrightness = 4;    // display brightness (0...15)
+const uint8_t nightModeOn = 23;         // turn nightmode on (hour)
+const uint8_t nightModeOff = 7;         // turn nightmode off (hour)
+const uint8_t nightModeTempOffSec = 10; // nightmode temporary disable (seconds)
+const uint8_t oneWireRes = 11;          // temp sensor resolution (9...12 bits)
+const uint8_t readDelay = 10;           // read temperature and voltage (seconds)
+const uint16_t voltageLimit = 3000;     // voltage threshold (millivolts)
+const uint16_t newSyncSeconds = 1800;   // next DCF sync (seconds)
+
 #include "AlphaDisplay.h"
 #include "DCF77.h"
 #include "Ports.h"
 
-#define DISPLAY_ADDRESS         0x70
-#define DISPLAY_DIGITS          8
-#define DISPLAY_BRIGHTNESS      4
-#define ONEWIRE_RESOLUTION      11
-
-const bool      syncAfterStart = true;
-const uint8_t   readDelay = 10;
-const uint16_t  voltageLimit = 3000;
-const uint16_t  newSyncSeconds = 1800;
-
-bool      syncReq, syncComplete, sens, voltage, buttonPressed, lowBatt, rtcOk;
+bool      syncReq, syncComplete, sens, voltage, buttonPressed, lowBatt, rtcOk, nightModeActive, nightModeTempOff;
 uint8_t   timeState, showState, receiveState, syncState, readState, pinBitmaskButton, portIdButton;
 int16_t   temp;
 uint16_t  vcc;
@@ -101,7 +104,7 @@ OneWire ow;
 
 enum { TIME_NOTIME = 1, TIME_RTC, TIME_SYNC, TIME_SYNCED };
 enum { RECEIVE_INIT = 1, RECEIVE_IDLE, RECEIVE_RECEIVING, RECEIVE_COMPLETE };
-enum { SHOW_TIMEDATE = 1, SHOW_TIMEFULL, SHOW_TIMETEMP, SHOW_LOWBATT };
+enum { SHOW_TIMEDATE = 1, SHOW_TIMEFULL, SHOW_TIMETEMP, SHOW_VOLTAGE, SHOW_NIGHT };
 enum { SHOWSYNC_IDLE = 1, SHOWSYNC_MINUTEMARKER, SHOWSYNC_RECEIVING, SHOWSYNC_RECEIVECOMPL, SHOWSYNC_NOSIGNAL, SHOWSYNC_WAITSIGNAL };
 enum { READ_IDLE = 1, READ_STARTCONV, READ_TEMP, READ_RTCTEMP, READ_VCC};
 
@@ -127,7 +130,7 @@ void setup() {
   Wire.begin();
 #endif
 
-  alpha.init(DISPLAY_ADDRESS, DISPLAY_DIGITS, DISPLAY_BRIGHTNESS);
+  alpha.init(displayAddress, displayDigits, displayBrightness);
   alpha.print("INIT");
   delay(1000);
 
@@ -142,9 +145,10 @@ void setup() {
 #endif
 
 #ifdef ONEWIRE
+  temp = TEMP_ERROR;
   ow.setup(ONEWIRE_PIN);
   if (!ow.reset()) {
-    ow.setResolution(ONEWIRE_RESOLUTION);
+    ow.setResolution(oneWireRes);
     alpha.print("TEMP OK ");
     delay(1000);
   }
@@ -155,7 +159,6 @@ void setup() {
   // initialize external RTC
   if (rtc.begin()) {
     if (rtc.lostPower()) {
-      rtc.adjust(DateTime(2026, 1, 1, 12, 0, 0));
       alpha.print("RTC PWR ");
     }
     else {
@@ -191,6 +194,8 @@ void setup() {
   sens = false;
   voltage = false;
   lowBatt = false;
+  nightModeActive = false;
+  nightModeTempOff = false;
   vcc = voltageLimit;
 
 #ifdef SERIALDEBUG
@@ -219,7 +224,7 @@ void loop() {
   showState = handleButton(showState);
 #endif
 
-#if defined (ONEWIRE) || defined (VOLTAGE)
+#if defined (ONEWIRE) || defined (RTCTEMP) || defined (VOLTAGE)
   // handle temp and voltage reading
   readState = handleReadTempVcc(readState);
 #endif
@@ -351,13 +356,34 @@ uint8_t handleReceive(uint8_t state) {
 uint8_t handleTime(uint8_t state) {
 
   bool tt = tickTock;
+  uint8_t ss;
   static bool prevtt = false;
+#ifdef BUTTON
+  static uint8_t nightModeCounter = 0;
+#endif
 
   if (prevtt == tt) return state;
   prevtt = tt;
 
   // increase local time by one second
   if (tt) dt = dt + 1;
+
+  // handle nightmode
+  if (nightMode) {
+    if (dt.hour() >= nightModeOn || dt.hour() < nightModeOff)
+      nightModeActive = true;
+    else
+      nightModeActive = false;
+#ifdef BUTTON  
+    // handle temporary disabling
+    if (tt && nightModeTempOff) {
+      if (nightModeCounter++ >= nightModeTempOffSec) {
+        nightModeCounter = 0;
+        nightModeTempOff = false;
+      }
+    }
+#endif
+  }
 
   switch (state) {
     case TIME_NOTIME:
@@ -380,7 +406,10 @@ uint8_t handleTime(uint8_t state) {
       break;
 
     case TIME_SYNCED:
-      showTime(showState, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day(), tt, dcf.getRequestState());
+      ss = showState;
+      if (nightModeActive && nightModeTempOff == false) ss = SHOW_NIGHT;
+
+      showTime(ss, tt, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day());
       break;
   }
   return state;
@@ -410,6 +439,14 @@ uint8_t handleButton(uint8_t state) {
   }
   if (buttonPressed) {
     buttonPressed = false;
+
+    // first button press in night mode doesn't change show state
+    if (nightModeActive && nightModeTempOff == false) {
+      nightModeTempOff = true;
+      return state;
+    }
+
+    // change show state
     switch (state) {
       case SHOW_TIMEDATE:
         lastLowBatt = false;
@@ -417,21 +454,21 @@ uint8_t handleButton(uint8_t state) {
 
       case SHOW_TIMEFULL:
         if (sens) return SHOW_TIMETEMP;
-        if (voltage) return SHOW_LOWBATT;
+        if (voltage) return SHOW_VOLTAGE;
         return SHOW_TIMEDATE;
 
       case SHOW_TIMETEMP:
-        if (voltage) return SHOW_LOWBATT;
+        if (voltage) return SHOW_VOLTAGE;
         return SHOW_TIMEDATE;
 
-      case SHOW_LOWBATT:
+      case SHOW_VOLTAGE:
         return SHOW_TIMEDATE;
     }
   }
   // trigger display voltage only once
   if (lowBatt && lastLowBatt == false) {
     lastLowBatt = true;
-    return SHOW_LOWBATT;
+    return SHOW_VOLTAGE;
   }
   return state;
 }
@@ -521,7 +558,7 @@ uint8_t handleReadTempVcc(uint8_t state) {
 
 void showSync(uint8_t mode) {
   bool dot;
-  char buffer[DISPLAY_DIGITS + 1];
+  char buffer[displayDigits + 1];
   uint8_t posRev;
   dcf77::dcfPulse pulse;
   dcf77::dcfPulseType pulseType;
@@ -562,24 +599,28 @@ void showSync(uint8_t mode) {
     case SHOWSYNC_NOSIGNAL:
       strcpy(buffer, "NOSIGNAL");
   }
-  buffer[DISPLAY_DIGITS] = 0;
+  buffer[displayDigits] = 0;
   alpha.print(buffer);
 }
 
 //----------------------------------------------------------------------------------
 
-void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uint8_t d, bool dot, bool sync) {
-  char buffer[DISPLAY_DIGITS + 1];
+void showTime(uint8_t mode, bool dot, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uint8_t d) {
+  char buffer[displayDigits + 1];
+  bool sync = dcf.getRequestState();
 
-  // show time
+  // show hours and minutes
   buffer[0] = hr >= 10 ? ('0' + hr / 10) : ' ';
   buffer[1] = ('0' + hr % 10) | (dot ? DOT : 0);
   buffer[2] = '0' + min / 10;
-  buffer[3] = ('0' + min % 10) | (sync ? DOT : 0);
-  buffer[DISPLAY_DIGITS] = 0;
+  buffer[3] = ('0' + min % 10);
+  buffer[displayDigits] = 0;
   
   switch (mode) {
     case SHOW_TIMEDATE:
+      // add date and show sync state
+      buffer[3] |= (sync ? DOT : 0);
+
       if (d >= 10 && m >= 10) {
         buffer[4] = '0' + d / 10;
         buffer[5] = ('0' + d % 10) | DOT;
@@ -607,6 +648,7 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
       break;
 
     case SHOW_TIMEFULL:
+      // add seconds
       buffer[3] |= DOT;
       buffer[4] = '0' + sec / 10;
       buffer[5] = ('0' + sec % 10) | (sync ? DOT : 0);
@@ -616,39 +658,45 @@ void showTime(uint8_t mode, uint8_t hr, uint8_t min, uint8_t sec, uint8_t m, uin
 
 #if defined (ONEWIRE) || defined (RTCTEMP)
     case SHOW_TIMETEMP:
-    {
-      bool neg = false;
-      int16_t temp2 = temp;
+      // add temperature
+      {
+        if (temp < -990 || temp > 9999) {
+          // temp reading error
+          buffer[4] = '-';
+          buffer[5] = '-' | DOT;
+          buffer[6] = '-';
+          buffer[7] = 'C';
+          break;
+        }
+        uint16_t temp2 = abs(temp);
 
-      if (temp == TEMP_ERROR) {
-        // temp reading error
-        buffer[4] = '-';
-        buffer[5] = '-' | DOT;
-        buffer[6] = '-';
+        buffer[3] |= (sync ? DOT : 0);
+        buffer[4] = ' ';
+        if (temp2 >= 1000) buffer[4] = '0' + temp2 / 1000;
+        if (temp < 0) buffer[4] = '-';
+        buffer[5] = ('0' + ((temp2 / 100) % 10)) | DOT;
+        buffer[6] = '0' + (temp2 / 10) % 10;
         buffer[7] = 'C';
         break;
       }
-      if (temp < 0) {
-        neg = true;
-        temp2 = -temp;
-      }
-      buffer[4] = ' ';
-      if (temp2 >= 1000) buffer[4] = '0' + temp2 / 1000;
-      if (neg) buffer[4] = '-';
-      buffer[5] = ('0' + ((temp2 / 100) % 10)) | DOT;
-      buffer[6] = '0' + (temp2 / 10) % 10;
-      buffer[7] = 'C';
-      break;
-    }
 #endif
 #ifdef VOLTAGE
-    case SHOW_LOWBATT:
+    case SHOW_VOLTAGE:
+      // add voltage
+      buffer[3] |= (sync ? DOT : 0);
       buffer[4] = ' ';
       buffer[5] = ('0' + ((vcc + 50) / 1000)) | DOT;
       buffer[6] = '0' + (((vcc + 50) / 100) % 10);
       buffer[7] = 'V';
       break;
 #endif
+    case SHOW_NIGHT:
+      // nightmode, only show dot
+      for (uint8_t i = 0; i < displayDigits; i++) buffer[i] = ' ';
+      buffer[1] |= dot ? DOT : 0;
+      break;
+
+    default: return;
   }
   alpha.print(buffer);
 }

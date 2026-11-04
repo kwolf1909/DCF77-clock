@@ -182,7 +182,10 @@ void dcf77::handle(void) {
 #endif
           bitArray[0] = 0;
           dcfPos = 0;
+          dcfComplete = false;
+          restartMarker = false;
           startBit = true;
+          receiveBit = true;
           state = dcfState::RECEIVING;
         }
         else {
