@@ -4,6 +4,7 @@ The MCU used is an ATtiny814/1614 or an ATmega4809 (Arduino Nano Every). Without
 used (98 % of flash space used). With some small modifications, the newer AVR Dx-series could be used as well.<br>
 The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V, the voltage is displayed as a low voltage indicator.<br>
 The temperature can be read by internal sensor of RTC or external OneWire-based sensor.<br>
+The nightmode darkens the display during defined night-hours (can be disabled). During nightmode, a button-press will temporarily light up the display.<br>
 A sync to DCF-time is performed in the background every 30 minutes, and immediately after power-up. The DCF-module is powered only during sync-cycle.<br>
 The software uses a layer-based approach. Low-level: DCF-object with interrupt handler, mid-level: receiving data state machine, upper level: display handling and user interface. No blocking code, using several finite state machines (FSM).<br>
 
