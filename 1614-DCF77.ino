@@ -15,7 +15,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Nov 04 2026
+//  Date: Nov 06 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -302,10 +302,10 @@ uint8_t handleReceive(uint8_t state) {
         return RECEIVE_RECEIVING;
       }
       if (prevtt != tt) {
-        newSyncCounter++;
         prevtt = tt;
+        if (tt) newSyncCounter++;
+        if (newSyncCounter >= newSyncSeconds && dt.second() == 50) syncReq = true;
       }
-      if (newSyncCounter > newSyncSeconds && dt.second() == 50) syncReq = true;
       break;
 
     case RECEIVE_RECEIVING:

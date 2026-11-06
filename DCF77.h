@@ -13,8 +13,7 @@ const uint16_t pauseDurationHigh = (timerFreq * 220) / 100;     // 2200 ms
 #define DCF_SIZE          59
 #define NOSIGNAL_COUNTER  10
 
-struct timeStampDCF77
-{
+struct timeStampDCF77 {
   // raw DCF77 values are always in two digits
   uint8_t minute;
   uint8_t hour;
@@ -35,7 +34,7 @@ class dcf77 {
     enum class dcfPulse { NONE = 1, PAUSE, BIT0, BIT1, INVALID };
     enum class dcfPulseType { START = 1, END };
     enum class dcfSignal { WAIT = 1, GOOD, NOSIGNAL };
-    uint8_t pinBitmaskDcf, pinBitmaskDcfPwr, pinBitmaskLed, portIdDcfPwr, portIdLed;
+    uint8_t pinBitmaskDcf;
 
     dcf77();
     void begin(uint8_t, uint8_t, uint8_t);
@@ -62,9 +61,9 @@ class dcf77 {
     void handleInt(bool);
 
   private:
-    bool dcfReq, minuteMarker, restartMarker, startBit, receiveBit, dcfComplete,
-         pulseReceivedAnim, noSignalMarker;
-    uint8_t bitArray[DCF_SIZE], dcfPos, noSignalCounter, validPulses;
+    bool dcfReq, minuteMarker, restartMarker, startBit, receiveBit, dcfComplete, pulseReceivedAnim, noSignalMarker;
+    uint8_t bitArray[DCF_SIZE], dcfPos, noSignalCounter, validPulses,
+            pinBitmaskDcfPwr, pinBitmaskLed, portIdDcfPwr, portIdLed;
     dcf77::dcfState state;
     dcf77::dcfSignal signalStatus;
 
@@ -128,10 +127,17 @@ void dcf77::handle(void) {
     case dcfState::IDLE:
       if (dcfReq) {
         dcfComplete = false;
-        validPulses = 0;
+        minuteMarker = false;
+        startBit = false;
+        receiveBit = false;
+        restartMarker = false;
         dcfPos = 0;
+        validPulses = 0;
         signalStatus = dcfSignal::WAIT;
         state = dcfState::DETECT;
+
+        // enable DCF-module
+        PORTA.OUTSET = pinBitmaskDcfPwr;
       }
       break;
 
@@ -182,7 +188,6 @@ void dcf77::handle(void) {
 #endif
           bitArray[0] = 0;
           dcfPos = 0;
-          dcfComplete = false;
           restartMarker = false;
           startBit = true;
           receiveBit = true;
@@ -273,19 +278,7 @@ void dcf77::timerTick(void) {
 }
 
 void dcf77::request(void) {
-  dcfPos = 0;
   dcfReq = true;
-  dcfComplete = false;
-  minuteMarker = false;
-  startBit = false;
-  receiveBit = false;
-  restartMarker = false;
-
-  // enable DCF-module
-  PORTA.OUTSET = pinBitmaskDcfPwr;
-
-  // clear receive data buffer
-  //for (uint8_t i = 0; i < DCF_SIZE; i++) bitArray[i] = 0;
 }
 
 bool dcf77::getRequestState(void) {
