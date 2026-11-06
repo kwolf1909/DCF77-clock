@@ -338,7 +338,9 @@ bool dcf77::checkPulseReceived(void) {
 }
 
 bool dcf77::checkComplete(void) {
-  return dcfComplete;
+  bool c = dcfComplete;
+  dcfComplete = false;
+  return c;
 }
 
 bool dcf77::checkStartBit(void) {
