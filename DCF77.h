@@ -135,9 +135,6 @@ void dcf77::handle(void) {
         validPulses = 0;
         signalStatus = dcfSignal::WAIT;
         state = dcfState::DETECT;
-
-        // enable DCF-module
-        PORTA.OUTSET = pinBitmaskDcfPwr;
       }
       break;
 
@@ -279,6 +276,9 @@ void dcf77::timerTick(void) {
 
 void dcf77::request(void) {
   dcfReq = true;
+  
+  // enable DCF-module
+  PORTA.OUTSET = pinBitmaskDcfPwr;
 }
 
 bool dcf77::getRequestState(void) {
