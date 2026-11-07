@@ -12,14 +12,14 @@ This application receives the european DCF77 time signal and syncs it with the e
 MCU-clock: 8 MHz<br>
 Timers used: TCB0 (DCF pulse width measurement), RTC (2 Hz clock ticks)
 
-Compiles with MegaTinyCore (ATtiny814/1614/412) or MegaAVR-core/MegaCoreX (Arduino Nano Every) on Arduino IDE.<br>
+Compiles with MegaTinyCore (ATtiny412/814/1614) or MegaAVR-core/MegaCoreX (Arduino Nano Every) on Arduino IDE.<br>
 
 ## Push-button based interface
 Select display modes: time with date | time with seconds | time with temperature | time with battery voltage.<br>
 
 ## Pins used (ATtiny814/1614)
 Pins used (ATtiny814/1614):<br>
-PA1 - Output, TX for serial debugging.<br>
+PA1 - Output, TX for serial monitoring.<br>
 PA2 - Input, RX (not used).<br>
 PA3 - Input, DCF-signal, active-low signal, external pull-up 10 kilohm required, external RC low-pass filter recommended.<br>
 PA4 - Input/Output, OneWire data, external pull-up 10 kilohm required.<br>
