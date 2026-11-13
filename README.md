@@ -51,6 +51,10 @@ Receive: RTC synced to DCF-time
 DCF77-receiver: ELV DCF-2 (MAS6180-based AM-receiver), any other receiver possible with digital signal output.<br>
 Temperature-sensor: DS18B20<br>
 Resistors: 1x 1 kilohm (LED), 3x 10 kilohm (pullups)<br>
-[Alphanumeric displays](https://www.adafruit.com/product/2154) used on board:<br>
+[Alphanumeric displays](https://www.adafruit.com/product/2154) used on board<br>
 
-<img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" /><br>
+Custom built display and ATtiny1614 on SOIC14 adapter (before soldering):<br>
+<img width="640" height="214" alt="alpha" src="https://github.com/user-attachments/assets/6b047f4b-43a1-4883-a1a5-ab0c732ea372" /> 
+<img width="320" height="318" alt="1614" src="https://github.com/user-attachments/assets/130029e0-11ed-4d80-83e0-6e4d0d22036b" /><br>
+
+
