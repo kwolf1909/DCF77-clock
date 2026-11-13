@@ -15,7 +15,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Nov 06 2026
+//  Date: Nov 13 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -71,8 +71,8 @@ const bool    nightMode = true;         // enable night mode
 const uint8_t displayAddress = 0x70;    // I2C display address
 const uint8_t displayDigits = 8;        // number of digits
 const uint8_t displayBrightness = 4;    // display brightness (0...15)
-const uint8_t nightModeOn = 23;         // turn nightmode on (hour)
-const uint8_t nightModeOff = 7;         // turn nightmode off (hour)
+const uint8_t nightModeOn = 22;         // turn nightmode on (hour)
+const uint8_t nightModeOff = 8;         // turn nightmode off (hour)
 const uint8_t nightModeTempOffSec = 10; // nightmode temporary disable (seconds)
 const uint8_t oneWireRes = 11;          // temp sensor resolution (9...12 bits)
 const uint8_t readDelay = 10;           // read temperature and voltage (seconds)
@@ -147,7 +147,7 @@ void setup() {
 #ifdef ONEWIRE
   temp = TEMP_ERROR;
   ow.setup(ONEWIRE_PIN);
-  if (!ow.reset()) {
+  if (ow.reset() == 0) {
     ow.setResolution(oneWireRes);
     alpha.print("TEMP OK ");
     delay(1000);
@@ -199,7 +199,7 @@ void setup() {
   vcc = voltageLimit;
 
 #ifdef SERIALDEBUG
-  Serial.println("Init finished.");
+  Serial.println("Init finished");
 #endif
 }
 
@@ -255,7 +255,8 @@ uint8_t handleAnimation(uint8_t state) {
       break;
 
     case SHOWSYNC_MINUTEMARKER:
-      if (dcf.checkMinuteMarker()) {
+      // show receiving cycle after startbit has been detected
+      if (dcf.checkStartBit()) {
         showSync(SHOWSYNC_RECEIVING);
         return SHOWSYNC_RECEIVING;
       }
@@ -694,6 +695,7 @@ void showTime(uint8_t mode, bool dot, uint8_t hr, uint8_t min, uint8_t sec, uint
       // nightmode, only show dot
       for (uint8_t i = 0; i < displayDigits; i++) buffer[i] = ' ';
       buffer[1] |= dot ? DOT : 0;
+      buffer[3] |= sync ? DOT : 0;
       break;
 
     default: return;

@@ -126,6 +126,7 @@ void dcf77::handle(void) {
   switch (state) {
     case dcfState::IDLE:
       if (dcfReq) {
+        // initialize all flags and values
         dcfComplete = false;
         minuteMarker = false;
         startBit = false;
@@ -184,8 +185,6 @@ void dcf77::handle(void) {
           Serial.println("DCF: Startbit detected, receiving now...");
 #endif
           bitArray[0] = 0;
-          dcfPos = 0;
-          restartMarker = false;
           startBit = true;
           receiveBit = true;
           state = dcfState::RECEIVING;
@@ -276,7 +275,7 @@ void dcf77::timerTick(void) {
 
 void dcf77::request(void) {
   dcfReq = true;
-  
+
   // enable DCF-module
   PORTA.OUTSET = pinBitmaskDcfPwr;
 }
