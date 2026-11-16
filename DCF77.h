@@ -63,7 +63,7 @@ class dcf77 {
   private:
     bool dcfReq, minuteMarker, restartMarker, startBit, receiveBit, dcfComplete, pulseReceivedAnim, noSignalMarker;
     uint8_t bitArray[DCF_SIZE], dcfPos, noSignalCounter, validPulses,
-            pinBitmaskDcfPwr, pinBitmaskLed, portIdDcfPwr, portIdLed;
+            pinBitmaskDcfPwr, pinBitmaskLed, portIdDcf, portIdDcfPwr, portIdLed;
     dcf77::dcfState state;
     dcf77::dcfSignal signalStatus;
 
@@ -96,15 +96,16 @@ void dcf77::begin(uint8_t pinDcf, uint8_t pinDcfPwr, uint8_t pinLed) {
   pinBitmaskDcf = digitalPinToBitMask(pinDcf);
   pinBitmaskDcfPwr = digitalPinToBitMask(pinDcfPwr);
   pinBitmaskLed = digitalPinToBitMask(pinLed);
+  portIdDcf = digitalPinToPort(pinDcf);
   portIdDcfPwr = digitalPinToPort(pinDcfPwr);
   portIdLed = digitalPinToPort(pinLed);
 
   // DCF signal input
-  PORTA.DIRCLR = pinBitmaskDcf;
+  port[portIdDcf]->DIRCLR = pinBitmaskDcf;
   register8_t *pinCtrlReg;
-  pinCtrlReg = &PORTA.PIN0CTRL + digitalPinToBitPosition(pinDcf);
+  pinCtrlReg = &(port[portIdDcf]->PIN0CTRL) + digitalPinToBitPosition(pinDcf);
   *pinCtrlReg = PORT_ISC_BOTHEDGES_gc;
-  
+
   // DCF module-power
   port[portIdDcfPwr]->DIRSET = pinBitmaskDcfPwr;
   port[portIdDcfPwr]->OUTCLR = pinBitmaskDcfPwr;
@@ -192,7 +193,7 @@ void dcf77::handle(void) {
         else {
           // wrong startbit
 #ifdef SERIALDEBUG
-          Serial.println("\r\nDCF: False startbit detected, restart");
+          Serial.println("DCF: False startbit detected, restart");
 #endif
           restartMarker = true;
           state = dcfState::IDLE;
@@ -215,7 +216,7 @@ void dcf77::handle(void) {
         }
       }
       break;
-      
+
     case dcfState::STARTBITCOMPL2:
       if (lastPulseType == dcfPulseType::END && lastPulse == dcfPulse::BIT0) {
 #ifdef SERIALDEBUG
@@ -277,7 +278,7 @@ void dcf77::request(void) {
   dcfReq = true;
 
   // enable DCF-module
-  PORTA.OUTSET = pinBitmaskDcfPwr;
+  port[portIdDcfPwr]->OUTSET = pinBitmaskDcfPwr;
 }
 
 bool dcf77::getRequestState(void) {

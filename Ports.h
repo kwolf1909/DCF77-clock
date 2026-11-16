@@ -9,4 +9,7 @@ PORT_t* const port[] = { &PORTA, &PORTB };
 #if defined (__AVR_ATmega4809__)
 PORT_t* const port[] = { 0x0400, 0x0420, 0x0440, 0x0460, 0x0480, 0x04A0 };
 #endif
+#if (__AVR_AVR16DD14__) || defined (__AVR_AVR32DD14__)
+PORT_t* const port[] = { &PORTA, NULL, &PORTC, &PORTD, NULL, &PORTF };
+#endif
 #endif

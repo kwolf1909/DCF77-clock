@@ -15,7 +15,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Nov 13 2026
+//  Date: Nov 16 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -27,6 +27,7 @@
 #define LED_PIN                 0   // PA6
 #define DCFPWR_PIN              1   // PA7
 #endif
+
 #if defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
 #include <Wire.h>
 #include "DS3231.h"
@@ -45,6 +46,7 @@
 #define DCFPWR_PIN              2   // PA6
 #define BUTTON_PIN              3   // PA7
 #endif
+
 #if defined(__AVR_ATmega4809__)
 #include <Wire.h>
 #include "DS3231.h"
@@ -61,7 +63,25 @@
 #define LED_PIN                 13  // PE2
 #define BUTTON_PIN              17  // PD0
 #define ONEWIRE_PIN             16  // PD1
-#define AIN2_PIN                15  // PD2
+#endif
+
+#if defined(__AVR_AVR16DD14__) || defined(__AVR_AVR32DD14__)
+#include <Wire.h>
+#include "DS3231.h"
+#include "OneWire.h"
+#define RTCEXT
+//#define RTCEXT32K
+//#define RTCTEMP
+#define ONEWIRE
+#define VOLTAGE
+//#define SEG14
+#define LED
+#define BUTTON
+#define DCF_PIN                 16  // PD4
+#define DCFPWR_PIN              17  // PD5
+#define LED_PIN                 18  // PD6
+#define ONEWIRE_PIN             19  // PD7
+#define BUTTON_PIN               1  // PA1
 #endif
 
 //#define SERIALDEBUG
@@ -116,6 +136,10 @@ void setup() {
   Serial.swap(1); // PA1(TX)
   Serial.begin(115200, SERIAL_TX_ONLY);
 #endif
+#if defined(__AVR_AVR16DD14__) || defined(__AVR_AVR32DD14__)
+  Serial.swap(4); // PC1(TX)
+  Serial.begin(115200, SERIAL_TX_ONLY);
+#endif
 #if defined(__AVR_ATmega4809__)
   Serial.begin(115200);
 #endif
@@ -124,6 +148,9 @@ void setup() {
   Serial.println(F_CPU, DEC);
 #endif
 
+#if defined(__AVR_AVR16DD14__) || defined(__AVR_AVR32DD14__)
+  Wire.swap(2);
+#endif
 #ifdef TINYWIRE
   TinyI2C.init();
 #else
@@ -438,6 +465,16 @@ uint8_t handleButton(uint8_t state) {
       if (stableState == true) buttonPressed = true;
     }
   }
+
+  // trigger display voltage only once
+  if (lowBatt) {
+    if (lastLowBatt == false) {
+      lastLowBatt = true;
+      return SHOW_VOLTAGE;
+    }
+  }
+  else lastLowBatt = false;
+
   if (buttonPressed) {
     buttonPressed = false;
 
@@ -465,11 +502,6 @@ uint8_t handleButton(uint8_t state) {
       case SHOW_VOLTAGE:
         return SHOW_TIMEDATE;
     }
-  }
-  // trigger display voltage only once
-  if (lowBatt && lastLowBatt == false) {
-    lastLowBatt = true;
-    return SHOW_VOLTAGE;
   }
   return state;
 }
@@ -616,7 +648,7 @@ void showTime(uint8_t mode, bool dot, uint8_t hr, uint8_t min, uint8_t sec, uint
   buffer[2] = '0' + min / 10;
   buffer[3] = ('0' + min % 10);
   buffer[displayDigits] = 0;
-  
+
   switch (mode) {
     case SHOW_TIMEDATE:
       // add date and show sync state
@@ -725,16 +757,19 @@ void RTCinit(void) {
 
     while (RTC.STATUS > 0);
     RTC.CLKSEL = RTC_CLKSEL_TOSC32K_gc;
+    //RTC.CLKSEL = RTC_CLKSEL_XTAL32K_gc;
   }
   else {
     // fall back to internal 32K clock source if RTC not available
     while (RTC.STATUS > 0);
     RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
+    //RTC.CLKSEL = RTC_CLKSEL_OSC32K_gc;
   }
 #else
   // use internal 32K clock source
   while (RTC.STATUS > 0);
   RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
+  //RTC.CLKSEL = RTC_CLKSEL_OSC32K_gc;
 #endif
 
   // enable 2 Hz periodic interrupt
@@ -747,6 +782,7 @@ void RTCinit(void) {
 #ifdef VOLTAGE
 // configure internal ADC for reading own supply voltage
 void ADCinit(void) {
+
 #if defined(__AVR_ATtiny412__) || defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
   VREF.CTRLA = (VREF.CTRLA & ~VREF_ADC0REFSEL_gm) | VREF_ADC0REFSEL_1V1_gc;
   ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
@@ -754,39 +790,66 @@ void ADCinit(void) {
   ADC0.CTRLC = ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV32_gc | ADC_SAMPCAP_bm;
   ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
 #endif
-#if defined(__AVR_ATmega4809__)
-  uint8_t pinBitmaskAdc, portId;
-  register8_t *pinCtrlReg;
-  pinBitmaskAdc = digitalPinToBitMask(AIN2_PIN);
-  portId = digitalPinToPort(AIN2_PIN);
-  pinCtrlReg = &(port[portId]->PIN0CTRL) + digitalPinToBitPosition(AIN2_PIN);
-  *pinCtrlReg &= ~PORT_ISC_gm;
-  *pinCtrlReg |= PORT_ISC_INPUT_DISABLE_gc;
-  VREF.CTRLA |= VREF_ADC0REFSEL_2V5_gc;
+
+#if defined(__AVR_ATmega4809__)  
+  VREF.CTRLA = VREF_AC0REFSEL_1V1_gc;
+  // set AC0 DACREF to max (255/256 * 1.1V)
+  AC0.DACREF = 255;
   ADC0.CTRLB = ADC_SAMPNUM_ACC64_gc;
-  ADC0.CTRLC = ADC_REFSEL_INTREF_gc | ADC_PRESC_DIV32_gc | ADC_SAMPCAP_bm;
-  ADC0.CTRLA = ADC_RESSEL_10BIT_gc | ADC_ENABLE_bm;
+  // set ADC0 reference to VDD and select prescaler
+  ADC0.CTRLC = ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV256_gc;
+  // select DACREF as the positive ADC input
+  ADC0.MUXPOS = ADC_MUXPOS_DACREF_gc;
+#endif
+
+#if defined(__AVR_AVR16DD14__) || defined(__AVR_AVR32DD14__)
+  VREF.ADC0REF = VREF_REFSEL_1V024_gc;
+  ADC0.CTRLA = ADC_RESSEL_10BIT_gc;
+  ADC0.CTRLB = ADC_SAMPNUM_ACC64_gc;
+  ADC0.CTRLC = ADC_PRESC_DIV32_gc;
+  ADC0.CTRLE = 15;
+  ADC0.SAMPCTRL = 32;
+  ADC0.MUXPOS = ADC_MUXPOS_VDDDIV10_gc;
 #endif
 }
 
 // the voltage is read by accumulating 64 samples
 uint16_t measureVoltage(void) {
+  uint16_t accumulatedVal;
+
 #if defined(__AVR_ATtiny412__) || defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
   ADC0.COMMAND = ADC_STCONV_bm;
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
   ADC0.INTFLAGS = ADC_RESRDY_bm;
-  uint16_t accumulatedVal = ADC0.RES;
+  accumulatedVal = ADC0.RES;
   if (accumulatedVal == 0) return 0;
   return (uint16_t)(72019200UL / accumulatedVal);
 #endif
+
 #if defined(__AVR_ATmega4809__)
-  ADC0.MUXPOS = ADC_MUXPOS_AIN2_gc;
+  ADC0.CTRLA = ADC_ENABLE_bm;
+  delay(2);
+  ADC0.COMMAND = ADC_STCONV_bm;
+  while (ADC0.COMMAND & ADC_STCONV_bm);
+  accumulatedVal = ADC0.RES;
+  if (accumulatedVal == 0) return 0;
+  ADC0.CTRLA &= ~ADC_ENABLE_bm;
+  // calculate VDD in mV
+  // V_dac = 1100 mV * (255 / 256)
+  // VDD_mV = (V_dac * 1024 * 64) / adc_sum
+  //        = (1100 * 255 * 4 * 64) / adc_sum
+  //        = 71808000L / adc_sum
+  return (uint16_t)(71808000L / accumulatedVal);
+#endif
+
+#if defined(__AVR_AVR16DD14__) || defined(__AVR_AVR32DD14__)
+  ADC0.CTRLA |= ADC_ENABLE_bm;
+  delayMicroseconds(50);
   ADC0.COMMAND = ADC_STCONV_bm;
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
-  ADC0.INTFLAGS = ADC_RESRDY_bm;
-  // using external voltage divider 56 kohms (VCC) + 33 kohms (GND)
-  // factor = 2500/1023 * (56+33)/33 = 6,59084 -> * 65536 = 431937
-  return (uint16_t)(((uint32_t)(ADC0.RES >> 6) * 431937L) >> 16);
+  accumulatedVal = ADC0.RES >> 6;
+  ADC0.CTRLA &= ~ADC_ENABLE_bm;
+  return (uint16_t)(accumulatedVal * 10);
 #endif
 }
 #endif
@@ -798,12 +861,21 @@ ISR(RTC_PIT_vect) {
 }
 
 // DCF77 interrupt handler, is called on every pulse edge
+#if defined(__AVR_AVR16DD14__) || defined(__AVR_AVR32DD14__)
+ISR(PORTD_PORT_vect) {
+  if (PORTD.INTFLAGS & dcf.pinBitmaskDcf) {
+    PORTD.INTFLAGS = dcf.pinBitmaskDcf;
+    dcf.handleInt((PORTD.IN & dcf.pinBitmaskDcf) ? true : false);
+  }
+}
+#else
 ISR(PORTA_PORT_vect) {
   if (PORTA.INTFLAGS & dcf.pinBitmaskDcf) {
     PORTA.INTFLAGS = dcf.pinBitmaskDcf;
     dcf.handleInt((PORTA.IN & dcf.pinBitmaskDcf) ? true : false);
   }
 }
+#endif
 
 // the TCB0-timer interrupt is called every 5 ms
 ISR(TCB0_INT_vect) {
