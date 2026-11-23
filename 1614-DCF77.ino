@@ -3,8 +3,8 @@
 //
 //  This program receives the european DCF77 time signal and syncs it with the external RTC-clock.
 //  It is displayed on an 8-digit alphanumeric- or 7-segment display with display-controller HT16K33.
-//  The MCU used is an ATtiny 814/1614 or an ATmega 4809. With reduced features, an ATtiny 412
-//  can be used.
+//  The MCU used is an ATtiny 814/1614, an ATmega 4809 or an AVR16DD14/AVR32DD14.
+//  With reduced features, an ATtiny 412 can be used.
 //  The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V, the voltage is
 //  displayed as a low voltage indicator.
 //  A push button switches between different display modes:
@@ -15,7 +15,7 @@
 //  External RTC: DS3231 with battery backup, supplies 32K clock for internal RTC
 //
 //  Author: Klaus Wolf
-//  Date: Nov 16 2026
+//  Date: Nov 23 2026
 //------------------------------------------------------------------------------------------------
 
 #if defined(__AVR_ATtiny412__)
@@ -52,6 +52,7 @@
 #include "DS3231.h"
 #include "OneWire.h"
 #define RTCEXT
+//#define RTCEXT32K
 //#define RTCTEMP
 #define ONEWIRE
 #define VOLTAGE
@@ -70,11 +71,11 @@
 #include "DS3231.h"
 #include "OneWire.h"
 #define RTCEXT
-//#define RTCEXT32K
+#define RTCEXT32K
 //#define RTCTEMP
 #define ONEWIRE
 #define VOLTAGE
-//#define SEG14
+#define SEG14
 #define LED
 #define BUTTON
 #define DCF_PIN                 16  // PD4
@@ -204,7 +205,14 @@ void setup() {
   delay(1000);
 #endif
 
+#ifdef RTCEXT32K
+  // use external RTC with 32k clock source
+  if (rtcOk) RTCinit32kExt();
+  else RTCinit();
+#else
+  // use internal 32k clock
   RTCinit();
+#endif
 
 #ifdef VOLTAGE
   ADCinit();
@@ -312,7 +320,7 @@ uint8_t handleReceive(uint8_t state) {
   bool tt = tickTock;
   static bool prevtt = false;
   static uint16_t newSyncCounter;
-    
+
   switch (state) {
     case RECEIVE_INIT:
       newSyncCounter = 0;
@@ -331,8 +339,7 @@ uint8_t handleReceive(uint8_t state) {
       }
       if (prevtt != tt) {
         prevtt = tt;
-        if (tt) newSyncCounter++;
-        if (newSyncCounter >= newSyncSeconds && dt.second() == 50) syncReq = true;
+        if (tt && newSyncCounter++ >= newSyncSeconds) syncReq = true;
       }
       break;
 
@@ -383,12 +390,8 @@ uint8_t handleReceive(uint8_t state) {
 
 uint8_t handleTime(uint8_t state) {
 
-  bool tt = tickTock;
-  uint8_t ss;
+  bool nm, tt = tickTock;
   static bool prevtt = false;
-#ifdef BUTTON
-  static uint8_t nightModeCounter = 0;
-#endif
 
   if (prevtt == tt) return state;
   prevtt = tt;
@@ -396,22 +399,7 @@ uint8_t handleTime(uint8_t state) {
   // increase local time by one second
   if (tt) dt = dt + 1;
 
-  // handle nightmode
-  if (nightMode) {
-    if (dt.hour() >= nightModeOn || dt.hour() < nightModeOff)
-      nightModeActive = true;
-    else
-      nightModeActive = false;
-#ifdef BUTTON  
-    // handle temporary disabling
-    if (tt && nightModeTempOff) {
-      if (nightModeCounter++ >= nightModeTempOffSec) {
-        nightModeCounter = 0;
-        nightModeTempOff = false;
-      }
-    }
-#endif
-  }
+  nm = isNightMode();
 
   switch (state) {
     case TIME_NOTIME:
@@ -434,10 +422,7 @@ uint8_t handleTime(uint8_t state) {
       break;
 
     case TIME_SYNCED:
-      ss = showState;
-      if (nightModeActive && nightModeTempOff == false) ss = SHOW_NIGHT;
-
-      showTime(ss, tt, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day());
+      showTime(nm ? SHOW_NIGHT : showState, tt, dt.hour(), dt.minute(), dt.second(), dt.month(), dt.day());
       break;
   }
   return state;
@@ -452,7 +437,7 @@ uint8_t handleButton(uint8_t state) {
   static bool stableState = false;
   static uint8_t confidenceCounter = 0;
   static uint8_t stableThreshold = 50;
-  
+
   // read low-active button state
   button = (port[portIdButton]->IN & pinBitmaskButton) ? false : true;
 
@@ -585,6 +570,31 @@ uint8_t handleReadTempVcc(uint8_t state) {
   return state;
 }
 #endif
+
+//----------------------------------------------------------------------------------
+
+bool isNightMode(void) {
+#ifdef BUTTON
+  static uint8_t nightModeCounter = 0;
+#endif
+  if (nightMode) {
+    if (dt.hour() >= nightModeOn || dt.hour() < nightModeOff)
+      nightModeActive = true;
+    else
+      nightModeActive = false;
+#ifdef BUTTON
+    // handle temporary disabling
+    if (nightModeTempOff) {
+      if (nightModeCounter++ >= (nightModeTempOffSec * 2)) {
+        nightModeCounter = 0;
+        nightModeTempOff = false;
+      }
+    }
+#endif
+  }
+  if (nightModeActive && nightModeTempOff == false) return true;
+  return false;
+}
 
 //----------------------------------------------------------------------------------
 
@@ -736,41 +746,46 @@ void showTime(uint8_t mode, bool dot, uint8_t hr, uint8_t min, uint8_t sec, uint
 
 //----------------------------------------------------------------------------------
 
-void RTCinit(void) {
-
-  // enable external 32K clock for internal RTC-timer
 #ifdef RTCEXT32K
-  if (rtcOk) {
-    uint8_t temp = CLKCTRL.XOSC32KCTRLA & ~CLKCTRL_ENABLE_bm;
-    CPU_CCP = CCP_IOREG_gc;
-    CLKCTRL.XOSC32KCTRLA = temp;
-    while (CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm);
+void RTCinit32kExt(void) {
+  // enable external 32K clock for internal RTC
+  uint8_t temp = CLKCTRL.XOSC32KCTRLA & ~CLKCTRL_ENABLE_bm;
+  CPU_CCP = CCP_IOREG_gc;
+  CLKCTRL.XOSC32KCTRLA = temp;
+  while (CLKCTRL.MCLKSTATUS & CLKCTRL_XOSC32KS_bm);
 
-    temp = CLKCTRL.XOSC32KCTRLA | CLKCTRL_SEL_bm;
-    CPU_CCP = CCP_IOREG_gc;
-    CLKCTRL.XOSC32KCTRLA = temp;
+  // enable external clock on TOSC1
+  temp = CLKCTRL.XOSC32KCTRLA | CLKCTRL_SEL_bm;
+  CPU_CCP = CCP_IOREG_gc;
+  CLKCTRL.XOSC32KCTRLA = temp;
 
-    temp = CLKCTRL.XOSC32KCTRLA | CLKCTRL_ENABLE_bm;
-    CPU_CCP = CCP_IOREG_gc;
-    CLKCTRL.XOSC32KCTRLA = temp;
+  temp = CLKCTRL.XOSC32KCTRLA | CLKCTRL_ENABLE_bm;
+  CPU_CCP = CCP_IOREG_gc;
+  CLKCTRL.XOSC32KCTRLA = temp;
 
-    while (RTC.STATUS > 0);
-    RTC.CLKSEL = RTC_CLKSEL_TOSC32K_gc;
-    //RTC.CLKSEL = RTC_CLKSEL_XTAL32K_gc;
-  }
-  else {
-    // fall back to internal 32K clock source if RTC not available
-    while (RTC.STATUS > 0);
-    RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
-    //RTC.CLKSEL = RTC_CLKSEL_OSC32K_gc;
-  }
-#else
-  // use internal 32K clock source
   while (RTC.STATUS > 0);
-  RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
-  //RTC.CLKSEL = RTC_CLKSEL_OSC32K_gc;
+#if defined(__AVR_AVR16DD14__) || defined(__AVR_AVR32DD14__)
+  //RTC.CLKSEL = RTC_CLKSEL_XTAL32K_gc;
+  RTC.CLKSEL = 0x02;
+#else
+  RTC.CLKSEL = RTC_CLKSEL_TOSC32K_gc;
+#endif
+  // enable 2 Hz periodic interrupt
+  while (RTC.PITSTATUS > 0);
+  RTC.PITCTRLA = RTC_PERIOD_CYC16384_gc | RTC_PITEN_bm;
+  while (RTC.PITSTATUS > 0);
+  RTC.PITINTCTRL = RTC_PI_bm;
+}
 #endif
 
+void RTCinit(void) {
+  // use internal 32K clock source for internal RTC
+  while (RTC.STATUS > 0);
+#if defined(__AVR_AVR16DD14__) || defined(__AVR_AVR32DD14__)
+  RTC.CLKSEL = RTC_CLKSEL_OSC32K_gc;
+#else
+  RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
+#endif
   // enable 2 Hz periodic interrupt
   while (RTC.PITSTATUS > 0);
   RTC.PITCTRLA = RTC_PERIOD_CYC16384_gc | RTC_PITEN_bm;
@@ -790,7 +805,7 @@ void ADCinit(void) {
   ADC0.MUXPOS = ADC_MUXPOS_INTREF_gc;
 #endif
 
-#if defined(__AVR_ATmega4809__)  
+#if defined(__AVR_ATmega4809__)
   VREF.CTRLA = VREF_AC0REFSEL_1V1_gc;
   // set AC0 DACREF to max (255/256 * 1.1V)
   AC0.DACREF = 255;
@@ -817,11 +832,14 @@ uint16_t measureVoltage(void) {
   uint16_t accumulatedVal;
 
 #if defined(__AVR_ATtiny412__) || defined(__AVR_ATtiny814__) || defined(__AVR_ATtiny1614__)
+  ADC0.CTRLA = ADC_ENABLE_bm;
+  delay(2);
   ADC0.COMMAND = ADC_STCONV_bm;
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
   ADC0.INTFLAGS = ADC_RESRDY_bm;
   accumulatedVal = ADC0.RES;
   if (accumulatedVal == 0) return 0;
+  ADC0.CTRLA &= ~ADC_ENABLE_bm;
   return (uint16_t)(72019200UL / accumulatedVal);
 #endif
 
@@ -842,8 +860,8 @@ uint16_t measureVoltage(void) {
 #endif
 
 #if defined(__AVR_AVR16DD14__) || defined(__AVR_AVR32DD14__)
-  ADC0.CTRLA |= ADC_ENABLE_bm;
-  delayMicroseconds(50);
+  ADC0.CTRLA = ADC_ENABLE_bm;
+  delay(2);
   ADC0.COMMAND = ADC_STCONV_bm;
   while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
   accumulatedVal = ADC0.RES >> 6;
