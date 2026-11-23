@@ -3,6 +3,7 @@ This application receives the european DCF77 time signal and syncs it with the e
 + The MCU used is an ATtiny814/1614, an ATmega4809 (Arduino Nano Every) or an AVR16DD14/AVR32DD14.
 + Without external RTC, serial debugging and OneWire, an ATtiny412 can be used (99 % of flash space used).
 + The circuit can be powered by a Li-Ion cell. If the voltage drops below 3.0 V, the voltage is displayed as a low voltage indicator.<br>
++ The use of an external RTC ist optional, but it increases accuracy and the time is backuped during power-loss.<br>
 + The temperature can be read by internal sensor of RTC or external OneWire-based sensor.<br>
 + The nightmode darkens the display during defined night-hours (can be disabled). During nightmode, a button-press will temporarily light up the display.<br>
 + A sync to DCF-time is performed in the background every 30 minutes, and immediately after power-up. The DCF-module is powered only during sync-cycle.<br>
